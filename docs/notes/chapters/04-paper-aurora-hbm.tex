@@ -1,0 +1,279 @@
+%======================================================================
+%  Critical literature review and research gap
+%======================================================================
+
+\section{Related work and the research gap}
+\label{sec:related-work}
+
+\subsection{Corpus and source roles}
+
+The supplied file
+\texttt{Lessons from HPL and HPL-MxP on Aurora.pdf} now contains the
+intended Goto et al.\ paper, \emph{Sustaining Exascale Performance:
+Lessons from HPL and HPL-MxP on Aurora}, arXiv:2604.09517v1
+~\cite{goto2026aurorahpl}.  Its title, authors and deployment results
+were checked against the local twelve-page copy.
+
+The four sources answer different parts of the argument.  Na et
+al.\ provide the closest LLM workload precedent
+~\cite{na2024llmcpu}; Ibeid et al.\ isolate memory bandwidth, latency,
+mode and locality effects~\cite{ibeid2025aurora}; Goto et al.\ show the
+importance of explicit tier staging and resource mapping at production
+scale
+~\cite{goto2026aurorahpl}; and Dongarra et al.\ provide architectural
+motivation rather than a directly comparable baseline
+~\cite{dongarra2026gpus}.  Their transfer limits are addressed with the
+results below rather than treating the four works as equivalent
+evidence.
+
+\subsection{Na et al.: the closest inference precedent}
+\label{sec:na-review}
+
+Na et al.\ evaluate Intel Extension for PyTorch (IPEX) on a dual-socket
+Xeon Max 9468 server and compare it with a previous-generation Xeon and
+with single A100 and H100 GPUs running FlexGen
+~\cite{na2024llmcpu}.  Their main comparisons bind one 48-core Max
+socket; only the core-count sweep extends to 96 cores.  The CPU
+experiments use BF16 OPT and LLaMA-2 models, prompt length 128,
+generation length 32 and batch sizes from 1 to 32; a separate sweep
+increases the prompt length.  This is the closest platform and workload
+match in the corpus, but its results need careful qualification.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Results from Na et al.\ and the interpretation used here
+~\cite{na2024llmcpu}.}
+\label{tab:na-findings}
+\begin{tabularx}{\textwidth}{@{}YYY@{}}
+\toprule
+\textbf{Reported result} & \textbf{What it supports}
+ & \textbf{What it does not establish} \\
+\midrule
+Depending on batch, Xeon Max geometric-mean throughput over the tested
+models is 3.2--6.3$\times$ that of the Ice Lake system.
+ & Matrix acceleration and the newer memory system make recent CPUs
+   substantially more credible for inference.
+ & A causal HBM or AMX speedup: cores, cache, DDR generation,
+   microarchitecture and software paths also change. \\
+\addlinespace[2pt]
+Quadrant+Flat gives the best average of the four configurations under
+the paper's HBM-first Flat placement.
+ & In this setup, explicit HBM placement outperforms hardware-managed
+   caching; unmanaged fine-grained NUMA is costly.
+ & A universal preference for Quadrant mode.  Exact allocation,
+   first-touch and binding details are not disclosed. \\
+\addlinespace[2pt]
+On average over the tested models and batches, 48 cores outperform a
+naive 96-core execution.
+ & Remote traffic can erase the value of additional cores.
+ & An inherent one-socket scaling limit; replicas or topology-aware
+   sharding are not evaluated. \\
+\addlinespace[2pt]
+At batch one, the CPU outperforms the tested FlexGen A100/H100 runs for
+oversized models.
+ & Capacity and data movement can dominate accelerator arithmetic at
+   low batch.
+ & General CPU superiority.  For LLaMA2-70B at batch 16 and prompt
+   length at least 256, the offloaded H100 regains lower latency; when a
+   model fits GPU memory, the GPUs are faster.  Multi-GPU serving is not
+   tested. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The paper's GPU result is therefore best read as a data-movement result.
+It compares direct CPU execution with a particular single-GPU
+offloading system.  It does not compare like-for-like production
+serving stacks.  The study also omits quantized weights, long
+generations, energy, online arrivals, tail latency and output-quality
+validation.  Repetition count, dispersion, complete software versions,
+firmware, warm-up and the exact NUMA command are not reported.  Its
+experimental design can be reimplemented, but the paper does not
+support exact numerical reproduction.  It also proposes, without
+implementing or evaluating, NUMA-aware hot/cold placement and
+CPU--GPU layer partitioning.  A later placement contribution must
+acknowledge that prior proposal.
+
+\subsection{Ibeid et al.: bandwidth, latency and locality}
+\label{sec:ibeid-review}
+
+Ibeid et al.\ separate memory-system effects more clearly
+~\cite{ibeid2025aurora}.  On the Borealis testbed they use Xeon Max
+9470C processors and run STREAM, Intel Memory Latency Checker, PCIe and
+MPI microbenchmarks, followed by three HPC applications chosen to stress
+bandwidth, latency or capacity.  At the time of the study, production
+Aurora was configured in Quadrant+Flat mode; the full single-socket
+Flat/Cache and Quadrant/SNC4 matrix comes from Borealis.
+
+\begin{table}[tbp]
+\centering
+\small
+\caption{Single-socket STREAM Triad bandwidth on the Borealis Xeon Max
+9470C testbed, in GB/s~\cite{ibeid2025aurora}.  The paper does not fully
+specify array size, first touch or cache-state controls.}
+\label{tab:ibeid-stream}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+ & \multicolumn{2}{c}{\textbf{Flat mode}} & \textbf{Cache mode} \\
+\cmidrule(lr){2-3}
+\textbf{Clustering} & \textbf{DDR5} & \textbf{HBM} & \textbf{DDR5+HBM cache} \\
+\midrule
+Quadrant, full socket & 235 & 680 & 560 \\
+SNC4, full socket     & 245 & 840 & 575 \\
+SNC4, one quadrant    &  60 & 210 & 150 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In the two full-socket Flat-mode rows, HBM bandwidth is 2.9--3.4 times
+DDR5 bandwidth, and SNC4 raises full-socket HBM bandwidth by about 24\%
+over Quadrant.
+However, unloaded latency favours DDR5: the paper reports 112.9\,ns for
+Quadrant/DDR and 134.9\,ns for Quadrant/HBM.  Under increasing access
+load, DDR5 saturates sooner while HBM sustains greater bandwidth before
+latency rises sharply.  These results support a three-way distinction:
+HBM for concurrent bandwidth demand, DDR5 for capacity and potentially
+lower lightly loaded latency, and explicit locality for collecting the
+available bandwidth.
+
+Unless stated otherwise, Ibeid et al.\ repeat experiments three times
+and report means; the latency study uses ten repetitions and reports a
+mean and range.  Most other results do not report dispersion, and the
+STREAM allocation and cache-state details remain insufficient for exact
+reproduction.
+
+The application results reinforce that there is no universal mode
+ranking.  Explicit HBM performs best when a bandwidth-intensive working
+set fits; Cache mode can help when the working set exceeds HBM; and DDR5
+can remain preferable for lightly loaded latency-sensitive work.  Those
+applications are not proxies for transformer inference.  They provide
+mechanisms and measurements to reproduce, not a predicted LLM speedup.
+Because Cache mode is direct-mapped, page-colour conflicts can also
+change its result.  The paper uses page shuffling (``Fake NUMA'') to
+mitigate such conflicts, so behaviour near 64\,GB must not be read as a
+capacity-only effect.
+
+\FloatBarrier
+
+\subsection{The SNC4 result is software-dependent}
+\label{sec:snc4-synthesis}
+
+The two measurement papers appear to disagree.  Ibeid et al.\ obtain
+their highest HBM bandwidth and several best application results with
+SNC4 and explicit per-domain placement.  Na et al.\ find that both SNC4
+configurations lose to Quadrant and report increased remote cache
+traffic.  Both observations can hold: SNC4 exposes locality, but
+software must align allocation and execution with that locality.
+
+This is a productive gap rather than a contradiction in the hardware.
+An MPI application can exploit SNC4 when ranks, pages and network
+interfaces are explicitly bound per domain; MPI alone does not
+guarantee locality.  Ibeid et al.\ recover an SNC4 MPI deficit through
+explicit quadrant-to-interface mapping.  A shared-memory runtime that
+allocates tensors without regard to the four domains can incur remote
+traffic and smaller per-domain capacity.  CRESCO8 should therefore test
+both a deliberately local SNC4 design and an unmanaged baseline if
+administrators can expose that mode.
+
+\subsection{Goto et al.: lessons from production scale}
+
+Goto et al.\ report three production-scale Aurora campaigns, culminating in
+1.012\,EF/s for FP64 HPL on 9,234 nodes, with 78.8\% parallel scaling
+efficiency, and
+11.64\,EF/s for mixed-precision HPL-MxP on 9,500 nodes
+~\cite{goto2026aurorahpl}.  These values use different precision and are
+not like-for-like throughput measurements.
+
+The paper adds a relevant example of deliberate memory tiering.  Each
+Aurora CPU has 64\,GB HBM2e and 512\,GB DDR5.  The global HPL matrix
+remains in DDR because it exceeds HBM capacity, while tiles used for
+panel factorisation, triangular solves and row exchange are staged into
+HBM.  This demonstrates a production design that combines DDR capacity
+with HBM for selected CPU-side operations.  Overall runtime is dominated
+by GPU GEMM, and the paper does not ablate the staging policy, so it
+does not quantify an HBM speedup transferable to LLM inference.
+
+The study's second transferable lesson is that sustained performance
+required
+deterministic NUMA/PCIe-aware mapping, explicit CPU--GPU pipelining,
+phase-specific communication choices and resilience to transient faults.
+HPL-MxP improved from 10.6\,EF/s at ISC24 to 11.64\,EF/s at SC24,
+about 9.8\%.  The authors identify AMX enablement as the primary
+configuration change.  Their own impact table states that its
+classifications are engineering assessments rather than controlled
+ablations; the campaign comparison is therefore strong operational
+evidence, not an isolated 9.8\% AMX measurement.
+
+These findings support two methodological choices for this thesis:
+resource mapping is part of the implementation, and a benchmark result
+is credible only with a complete mapping and run manifest.  The paper
+does not measure CPU-only LLM inference or isolate CPU HBM, so its
+exascale throughput numbers should not appear as evidence for an HBM
+speedup on CRESCO8.
+
+\subsection{Dongarra et al.: architectural motivation, not a baseline}
+
+Dongarra, Hoefler and Matsuoka argue that CPUs combining vector and
+matrix engines, low-precision arithmetic and on-package HBM address the
+three historical reasons for discrete GPU acceleration: arithmetic
+throughput, memory bandwidth and data movement
+~\cite{dongarra2026gpus}.  They retain an important boundary: GPUs
+remain central to frontier-scale training, while HBM-equipped CPUs may
+be attractive for inference and mixed irregular/dense scientific
+workflows.
+
+The manuscript's empirical discussion is asymmetric.  It summarizes a
+companion study described as in preparation for arXiv: A64FX decode
+results are measured, whereas results for a newer matrix-enhanced CPU,
+including prefill and energy implications, are partly projected from
+specifications.  Its trillion-parameter mixture-of-experts workload,
+256K context and low-bit formats are also far from the CRESCO8 baseline.
+Software maturity, energy and interconnect effects remain unresolved.
+The manuscript therefore motivates the research question and the need
+for runtime-aware placement, but it cannot substitute for measurements
+on the Max 9480.
+
+\subsection{What the literature establishes}
+
+Taken together, the sources support four bounded conclusions:
+
+\begin{enumerate}
+  \item On-package HBM provides a large sustained bandwidth advantage
+        over DDR5 on Xeon Max, but the achieved value depends on
+        clustering and placement.
+  \item Low-batch autoregressive decode is a strong candidate for
+        bandwidth limitation, whereas larger prefill and batched decode
+        can place more pressure on matrix throughput.
+  \item Direct CPU inference can be competitive when the alternative
+        repeatedly moves an oversized working set over PCIe; this is a
+        capacity and data-movement claim, not a general CPU--GPU ranking.
+  \item Topology results belong to the hardware--software combination.
+        A poor two-socket or SNC4 result does not prove that the added
+        resources are unusable.
+\end{enumerate}
+
+\subsection{What remains unanswered}
+\label{sec:research-gap}
+
+No source in the reviewed corpus performs a controlled, same-socket
+comparison of local HBM and local DDR5 for modern quantized LLM
+inference while separating prefill and sustained decode.  The following
+questions remain unanswered by the reviewed corpus and require
+measurement on CRESCO8:
+
+\begin{itemize}
+  \item how quantized weight and KV formats change the HBM benefit;
+  \item what occurs when the verified live set approaches and crosses a
+        64\,GB local HBM boundary;
+  \item whether topology-aware sharding or independent replicas can
+        reverse the reported SNC4 and two-socket regressions; and
+  \item whether a performance gain also reduces energy per token under a
+        clearly defined measurement boundary.
+\end{itemize}
+
+Answering the first three questions with a frozen runtime, raw data and
+uncertainty is a sufficient and coherent thesis contribution.  Energy
+is retained only if the measurement interface and boundary can be
+validated.  GPU comparison, online serving and multi-node inference are
+extensions rather than prerequisites.

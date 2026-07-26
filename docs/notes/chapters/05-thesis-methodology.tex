@@ -1,0 +1,340 @@
+%======================================================================
+%  Focused experimental design
+%======================================================================
+
+\section{Focused experimental design}
+\label{sec:methodology}
+
+\subsection{Objective and research questions}
+
+The thesis should make a narrower claim than ``CPUs can run large
+language models''.  Its objective is to quantify when and why
+on-package HBM changes inference on a Xeon Max processor, using DDR5 on
+the same socket as the control.  This produces three primary research
+questions:
+
+\begin{table}[tbp]
+\centering
+\small
+\caption{Primary research questions and predictions.  Predictions are
+registered expectations to test, not conclusions.}
+\label{tab:research-questions}
+\begin{tabularx}{\textwidth}{@{}lYY@{}}
+\toprule
+ & \textbf{Question} & \textbf{Prediction} \\
+\midrule
+RQ1
+ & How does verified local HBM change prefill and decode performance
+   relative to local DDR5 on the same Max 9480?
+ & The largest benefit occurs in low-batch decode.  Prefill and batched
+   decode show less benefit as weight reuse and matrix-engine utilization
+   increase. \\
+RQ2
+ & How do weight precision, KV precision and live-set size change the
+   result as the working set approaches and exceeds 64\,GB per socket?
+ & Quantization moves the capacity boundary but does not yield a
+   bit-width-proportional speedup.  Crossing local HBM introduces a
+   placement-dependent performance change. \\
+RQ3
+ & Can explicit socket or SNC-domain placement use additional cores and
+   bandwidth without the regressions reported for unmanaged execution?
+ & Local replicas or shards reduce UPI traffic and outperform a
+   placement-oblivious two-socket run; SNC4 is expected to help when
+   allocation and workers share the same domains. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Energy per token is a conditional outcome, not a primary research
+question until a user-accessible measurement interface has been
+validated.  Multi-node inference, GPU comparison and online serving are
+outside the minimum scope.  They should be added only if the single-node
+results create a specific need or hypothesis.
+
+\FloatBarrier
+
+\subsection{Evidence and the primary contrast}
+
+Four evidence levels should remain distinct:
+
+\begin{enumerate}
+  \item a product guide establishes what a platform \emph{can} support;
+  \item ENEAGRID documentation establishes what the site reported at a
+        stated date;
+  \item the system manifest establishes what an allocated node exposed;
+        and
+  \item repeated measurements establish how a specified workload
+        behaved.
+\end{enumerate}
+
+The primary contrast holds the processor, socket, cores, executable,
+model, input and operating conditions constant while changing verified
+page placement between local HBM and local DDR5 in Flat mode.  This is
+closer to a causal HBM comparison than either a Max 9480--Platinum 8592+
+comparison or a Flat--Cache comparison.  The former changes processor
+architecture; the latter changes the memory-management policy as well
+as the tier.
+
+\subsection{Experimental sequence}
+
+The work should advance only after the preceding stage is stable.
+
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  stage/.style={draw=black!60, fill=neutralcol, rounded corners=2pt,
+                text width=3.0cm, minimum height=1.15cm, align=center},
+  primary/.style={stage, draw=accent, very thick, fill=accent!6},
+  optional/.style={draw=black!45, dashed, fill=white, rounded corners=2pt,
+                   text width=3.5cm, minimum height=0.95cm, align=center},
+  flow/.style={-{Stealth}, thick, black!60}
+]
+  \node[stage] (s0) at (0,0)
+    {\textbf{0. Manifest}\\topology, modes, software};
+  \node[stage] (s1) at (3.7,0)
+    {\textbf{1. Memory baseline}\\bandwidth, latency, locality};
+  \node[primary] (s2) at (7.4,0)
+    {\textbf{2. Primary contrast}\\local HBM vs.\ local DDR5};
+  \node[stage] (s3) at (11.1,0)
+    {\textbf{3. Boundaries}\\capacity and topology};
+  \node[optional] (s4) at (11.1,-2.0)
+    {\textbf{4. Conditional extension}\\energy, second runtime or code change};
+
+  \draw[flow] (s0) -- (s1);
+  \draw[flow] (s1) -- (s2);
+  \draw[flow] (s2) -- (s3);
+  \draw[flow] (s3) -- (s4);
+\end{tikzpicture}
+\caption{Experimental dependency order.  The primary HBM--DDR result
+does not depend on a later implementation contribution.  Author's
+design.}
+\label{fig:experimental-sequence}
+\end{figure}
+
+\begin{description}
+  \item[Stage 0: system manifest.] Record the items in
+  Table~\ref{tab:platform-record}, identify HBM and DDR NUMA nodes, and
+  verify whether Flat/Cache and Quadrant/SNC4 settings are available.
+
+  \item[Stage 1: memory characterization.] Measure local and remote read,
+  copy and triad bandwidth; unloaded and loaded latency; core-count
+  scaling; and concurrent HBM--DDR traffic.  Establish saturation and
+  run-to-run variability before fitting a performance model.
+
+  \item[Stage 2: primary inference contrast.] Freeze one runtime commit,
+  compiler and build.  Separate prefill from decode and compare verified
+  local HBM with local DDR5 on one socket.  This stage is the minimum
+  complete empirical study.
+
+  \item[Stage 3: capacity and topology.] Move the live set through the
+  local HBM boundary, then compare explicit placement, two-socket
+  execution and SNC4 where available.  Cache mode is included only if a
+  controlled reboot/configuration can be arranged.
+
+  \item[Stage 4: conditional extension.] Add energy, a second runtime or
+  a software change only after the baseline identifies a repeatable
+  effect and the remaining time supports a proper evaluation.
+\end{description}
+
+\subsection{Selecting factors without a Cartesian explosion}
+
+The experiment matrix should be chosen from hypotheses and pilot data,
+not by taking every combination of model, precision, length, batch,
+core count and topology.
+
+\begin{table}[tbp]
+\centering
+\small
+\caption{Factors and the role of each in the experimental design.}
+\label{tab:experimental-factors}
+\begin{tabularx}{\textwidth}{@{}lYY@{}}
+\toprule
+\textbf{Factor} & \textbf{Primary levels} & \textbf{Purpose} \\
+\midrule
+Memory placement
+ & Local HBM and local DDR5; remote and mixed placement in a later stage
+ & Isolate tier bandwidth, then quantify locality and spill effects. \\
+Working-set regime
+ & Comfortably below, near, and above usable local HBM capacity
+ & Locate a capacity boundary using measured resident memory rather than
+   parameter count alone. \\
+Precision
+ & BF16 reference and at least one practical quantized weight format;
+   KV precision recorded independently
+ & Test whether reduced traffic, packing and kernel coverage change the
+   HBM benefit. \\
+Workload shape
+ & Short and long prompt; short and sustained generation; low and
+   moderate batch/concurrency
+ & Separate prefill, weight-streaming decode and KV-dominant regimes. \\
+Core/topology
+ & Partial socket, full local socket, two local replicas or an explicit
+   shard; SNC4 only if available
+ & Identify saturation and distinguish additional compute from remote
+   traffic. \\
+Cache state
+ & Cold-start/model-load and warmed steady state reported separately
+ & Prevent file I/O or page-cache state from contaminating inference
+   measurements. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Models should be selected by memory regime and architecture rather than
+popularity alone.  The design should include a model/format that fits
+comfortably in local HBM and one configuration close to the usable
+capacity boundary.  At least one grouped-query model is useful because
+its KV growth differs from full multi-head attention.  If the boundary
+cannot be crossed with available models, context, concurrency or a
+controlled allocation can be used to change the live set, provided the
+mechanism does not alter the computation being compared.
+
+Pilot runs determine the final numeric levels.  A sparse matrix of
+representative points followed by focused sweeps around observed knees
+is more informative than a large under-replicated grid.
+
+\subsection{Runtime and correctness controls}
+
+One runtime should be selected as the primary implementation and frozen
+at a named commit.  Selection criteria are support for the required
+model formats, a measurable prefill/decode boundary, controllable thread
+affinity, transparent build reproducibility and a viable way to direct
+or verify memory placement.  A second runtime is useful for external
+validity but should not multiply every factor in the main experiment.
+
+Performance comparisons are meaningful only when the computation is
+equivalent.  Record the model revision and tokenizer, use fixed prompts
+and seeds where supported, and validate token sequences or task-level
+quality when precision changes.  If different kernels or quantization
+formats change model quality, report that difference rather than
+treating them as interchangeable.
+
+\subsection{Metrics and explanatory measurements}
+
+The primary metrics are:
+
+\begin{itemize}
+  \item prefill-dominated time to first output token (TTFT), with the
+        timed boundary declared;
+  \item median, p95 and p99 inter-token latency for decode;
+  \item output tokens/s and requests/s at the declared concurrency; and
+  \item peak and steady resident memory by object or tier where the
+        runtime exposes it.
+\end{itemize}
+
+E2E latency should be reported with an explicit boundary.  Model loading
+and tokenization are measured separately unless the experiment is
+deliberately end-to-end.  Throughput and reciprocal latency from the
+same fixed synchronous batch are two presentations of one observation,
+not independent confirmation.
+
+To explain a result, collect the smallest counter set that can test the
+mechanism: HBM and DDR traffic, UPI or remote traffic, achieved
+frequency, cache misses and relevant matrix-engine activity.  Counter
+names and availability are processor- and permission-specific.  A
+counter should be omitted rather than assigned a meaning that its scope
+does not support.
+
+\subsection{Run protocol and statistical analysis}
+
+Each reported comparison should follow the same protocol:
+
+\begin{enumerate}
+  \item reserve an exclusive node and archive the system manifest;
+  \item pin physical cores and memory explicitly, with SMT treated as a
+        separate factor;
+  \item verify page residency after model initialization and during the
+        run, not only after allocation;
+  \item separate model loading and warm-up from steady-state timing,
+        unless they are part of the declared metric;
+  \item counterbalance or randomize HBM and DDR run order to reduce
+        thermal and temporal bias;
+  \item retain every raw sample, failure and outlier flag together with
+        the command and environment;
+  \item determine replication from pilot variability, using paired runs
+        on the same node where possible; and
+  \item repeat a subset on more than one HBM node before generalizing to
+        the partition.
+\end{enumerate}
+
+Report absolute values and paired effect sizes, not only normalized bar
+charts.  For primary comparisons, provide the median and interquartile
+range together with a 95\% confidence interval appropriate to the
+sampling design.  Tail percentiles require enough generated tokens or
+requests to estimate them; p99 from a handful of observations is not a
+tail-latency result.
+
+\subsection{Energy, if the boundary can be defended}
+
+RAPL estimates processor-domain energy; XClarity/INA226 and a rack or
+node power meter may cover different hardware.  Before reporting
+joules/token, validate access, units, update rate, counter wraparound and
+the components included in each source.  Integrate energy over the same
+timed region as performance.  Gross joules/request and
+joules/output-token should be reported; if idle energy is subtracted,
+also report the gross value and the subtraction procedure.  Facility
+cooling claims require a measured facility boundary and are outside a
+node-level study.
+
+\subsection{Threats to validity}
+
+\begin{table}[tbp]
+\centering
+\small
+\caption{Main validity threats and design responses.}
+\label{tab:validity}
+\begin{tabularx}{\textwidth}{@{}lYY@{}}
+\toprule
+\textbf{Validity} & \textbf{Threat} & \textbf{Response} \\
+\midrule
+Internal
+ & Frequency drift, first touch, page migration, remote access, warm
+   cache state or shared-node interference is mistaken for an HBM effect.
+ & Exclusive nodes, paired order, explicit binding, residency checks and
+   frequency/traffic measurements. \\
+Construct
+ & STREAM is treated as LLM bandwidth; file size as live memory; average
+   TPOT as tail latency; RAPL as whole-node energy.
+ & Define each metric and boundary, measure the live set, and use
+   counters only to test a stated mechanism. \\
+External
+ & One model, precision, node or runtime is generalized to CPU inference
+   as a whole.
+ & Cover distinct memory regimes, repeat on multiple nodes, and state the
+   platform/runtime boundary of every conclusion. \\
+Statistical conclusion
+ & Few repetitions, selected best runs or unreported failures inflate an
+   effect.
+ & Retain raw samples, predeclare primary comparisons and report
+   uncertainty with absolute values. \\
+Reproducibility
+ & Modules, firmware, models and scheduler inventory change over time.
+ & Archive immutable source/model revisions, build metadata, commands
+   and dated system manifests. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\FloatBarrier
+
+\subsection{When an implementation contribution is justified}
+
+The empirical study is complete without a new placement algorithm.  A
+software contribution should follow only if the baseline reveals a
+stable inefficiency, such as remote pages under an ostensibly local
+policy, an avoidable capacity spill, or poor use of the second socket.
+The smallest defensible intervention is preferable: separate
+HBM/DDR allocators, object-level placement, one worker per locality
+domain, or a topology-aware request router.
+
+Any intervention must be compared with strong static baselines,
+including all-local placement when the model fits, weights-first and
+KV-first tiering, independent per-socket replicas, and hardware Cache
+mode if available.  Its evaluation must include placement overhead,
+remote traffic, memory use and output quality.  Novelty should be
+claimed only after a current literature search and an evaluation show
+that the measured advantage is not already provided by an existing
+runtime.  It must also distinguish an implemented contribution from the
+unevaluated NUMA-aware placement proposed by Na et al.
+~\cite{na2024llmcpu}.

@@ -1,0 +1,265 @@
+%======================================================================
+%  Workload concepts and analytical model
+%======================================================================
+
+\section{A performance model for LLM inference}
+\label{sec:inference-model}
+
+\subsection{Prefill and autoregressive decode}
+
+Inference for a decoder-only transformer has two phases
+~\cite{na2024llmcpu}.  During
+\emph{prefill}, the model processes the prompt and constructs the
+initial key--value (KV) cache.  Tokens from the prompt can be processed
+in parallel, so the linear layers often form comparatively large matrix
+multiplications.  During \emph{decode}, the model generates one new
+token per sequence at each iteration.  Each iteration requires the
+relevant weights and KV state, then appends the key and value for the new
+token.  Dense full-context attention reads the prior cached KV; sliding
+window or sparse attention can reduce that history.
+
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  io/.style={draw=black!50, fill=white, rounded corners=2pt,
+             minimum width=2.2cm, minimum height=0.9cm, align=center},
+  phase/.style={draw=black!65, fill=neutralcol, rounded corners=3pt,
+                minimum width=4.0cm, minimum height=1.55cm, align=center},
+  kv/.style={draw=hbmcol!85!black, fill=hbmcol!16, rounded corners=2pt,
+             minimum width=4.0cm, minimum height=0.8cm, align=center},
+  flow/.style={-{Stealth}, thick},
+  note/.style={font=\footnotesize, align=center}
+]
+  \node[io] (prompt) at (-6.0,0) {prompt};
+  \node[phase] (prefill) at (-2.5,0)
+    {\textbf{Prefill}\\process prompt in parallel\\build initial KV};
+  \node[phase] (decode) at (2.6,0)
+    {\textbf{Decode loop}\\access weights and relevant KV\\
+     generate one token/sequence};
+  \node[io] (output) at (6.3,0) {token stream};
+  \node[kv] (cache) at (2.6,-2.1)
+    {KV cache: read required history, append new state};
+
+  \draw[flow] (prompt) -- (prefill);
+  \draw[flow] (prefill) -- node[above, note]{first token} (decode);
+  \draw[flow] (decode) -- (output);
+  \draw[flow, {Stealth}-{Stealth}] (decode) -- (cache);
+  \draw[flow] (decode.45) .. controls +(0.8,0.8) and +(-0.8,0.8)
+       .. (decode.135) node[midway, above, note]{next iteration};
+
+  \node[note, below=0.2cm of prefill]
+    {principal latency metric: TTFT};
+  \node[note, below=0.65cm of cache]
+    {principal latency metric: inter-token latency};
+\end{tikzpicture}
+\caption{Dataflow of prompt prefill and autoregressive decode.  The
+frequent description of prefill as compute-bound and decode as
+bandwidth-bound is a useful first-order model, not a universal property:
+batch, context, precision and kernel implementation can change the
+regime.  Author's synthesis.}
+\label{fig:prefill-decode}
+\end{figure}
+
+This phase distinction is essential when evaluating HBM.  A single
+end-to-end throughput number can hide a faster decode phase behind a
+long prompt, or hide a prefill regression behind a long generation.
+TTFT and decode latency must therefore be reported separately.  Prefill
+usually offers matrix--matrix parallelism, whereas low-batch decode is
+closer to matrix--vector execution and repeatedly streams weights.
+Larger batches increase weight reuse and can move decode toward
+matrix-engine throughput; long contexts simultaneously increase KV
+traffic.
+
+\FloatBarrier
+
+\subsection{Working-set capacity}
+\label{sec:working-set}
+
+For a model with \(P\) parameters and a stored weight precision of
+\(q_w\) bits, the first-order weight footprint is
+
+\[
+  M_W = P\frac{q_w}{8} + M_{\mathrm{format}},
+\]
+
+where \(M_{\mathrm{format}}\) includes scales, zero-points, alignment,
+and any prepacked or duplicated representation created by the runtime.
+The model file size is not necessarily the resident weight footprint.
+
+For \(B\) concurrent sequences, cached length \(S\), \(L\) transformer
+layers, \(H_{\mathrm{KV}}\) KV heads, head dimension \(d_h\), and
+\(q_{\mathrm{KV}}\) bits per cached element, the KV footprint is
+
+\[
+  M_{\mathrm{KV}} =
+  2 B S L H_{\mathrm{KV}} d_h \frac{q_{\mathrm{KV}}}{8}.
+\]
+
+The factor two accounts for keys and values.  Grouped-query and
+multi-query attention reduce the KV footprint because
+\(H_{\mathrm{KV}}\) is smaller than the number of query heads.  The
+complete resident set is
+
+\[
+  M_{\mathrm{live}} =
+  M_W + M_{\mathrm{KV}} + M_{\mathrm{activations}}
+  + M_{\mathrm{workspace}} + M_{\mathrm{runtime}}.
+\]
+
+This arithmetic identifies where capacity boundaries may occur, but the
+boundary must use the OS-exposed NUMA capacity on the allocated node and
+a measured safety margin.  The advertised 64\,GB per socket is not a
+usable-allocation guarantee: system use, allocator fragmentation and
+workspace consume part of it.  A node may expose roughly 128\,GB across
+two sockets, but that capacity is not uniformly local; using it requires
+a placement strategy that distributes data and execution deliberately.
+
+Quantization changes both sides of the experiment.  Fewer bits reduce
+weight capacity and memory traffic, potentially reducing the benefit of
+HBM for a model that already fits.  At the same time, quantization can
+move a larger model below the HBM capacity boundary and remove DDR or
+remote traffic altogether.  Packing, dequantization and kernel coverage
+prevent performance from scaling exactly with bit width.  Weight and KV
+precision must therefore be reported separately.
+
+\subsection{Arithmetic intensity and the Roofline bound}
+\label{sec:roofline}
+
+The Roofline model relates arithmetic intensity \(I=F/D\), measured in
+FLOP/byte, to compute throughput and memory bandwidth
+~\cite{williams2009roofline}:
+
+\[
+  P_{\mathrm{attainable}}
+  \leq
+  \min\!\left(P_{\mathrm{compute}},
+              I B_{\mathrm{effective}}\right).
+\]
+
+For one inference step, a corresponding lower-bound model is
+
+\[
+  T_{\mathrm{step}}
+  \gtrsim
+  \max\!\left(
+      \frac{F_{\mathrm{step}}}{P_{\mathrm{effective}}},
+      \frac{D_{\mathrm{step}}}{B_{\mathrm{effective}}}
+  \right)
+  + T_{\mathrm{communication}} + T_{\mathrm{runtime}}.
+\]
+
+The effective quantities must be measured for the selected kernel,
+placement and core count.  Processor peak FLOP/s and theoretical pin
+bandwidth are ceilings, not values to substitute uncritically.
+
+For a dense linear layer during decode, if a stored weight is used once
+for each of \(B\) sequences in a batch, a useful first-order
+approximation is
+
+\[
+  I_{\mathrm{weights}} \approx \frac{2B}{b_w}
+  \quad \text{FLOP/byte},
+\]
+
+where \(b_w\) is the stored bytes per weight and a multiply--add is
+counted as two FLOPs.  The approximation assumes that each fetched dense
+weight is reused across the \(B\) sequences.  At batch one, BF16 weight
+streaming is therefore close to one FLOP/byte before KV,
+activation and runtime traffic are included.  Batching reuses weights
+and raises arithmetic intensity, which explains why HBM is expected to
+matter most for low-batch decode and why AMX can become more important
+as the matrix dimensions grow.
+
+This model also clarifies why bandwidth alone is insufficient:
+
+\begin{itemize}
+  \item \textbf{Bandwidth} sets the rate for many concurrent,
+        sufficiently regular memory requests.
+  \item \textbf{Latency} sets the cost of a dependent or lightly loaded
+        access path.  HBM can have higher unloaded latency than DDR5
+        while sustaining much greater bandwidth under load
+        ~\cite{ibeid2025aurora}.
+  \item \textbf{Capacity} determines whether the critical working set
+        remains local.  Crossing a 64\,GB socket boundary can introduce
+        DDR5 or UPI traffic and cause a discontinuity that a simple
+        single-tier Roofline does not predict.
+\end{itemize}
+
+For concurrent HBM and DDR5 traffic, a no-contention service-time
+estimate can range from perfect overlap to serialization of the
+per-tier transfers.  It is not a general bound: shared uncore resources,
+cache conflicts, UPI traffic and memory-controller interference can make
+the measured time worse than the serialized estimate.  Simultaneous
+HBM--DDR traffic must therefore be characterized before a tiered
+placement policy is modelled.
+
+\subsection{Placement is part of the algorithm}
+
+In Flat mode the operating system exposes memory tiers through NUMA,
+but it does not know which model objects are bandwidth-critical.
+Several mechanisms can therefore produce the wrong placement:
+allocator first touch, worker migration, memory-mapped model pages,
+automatic NUMA balancing, and a runtime that creates prepacked copies
+after the initial allocation.  A command-line memory policy is evidence
+of intent, not evidence of residency.
+
+The relevant experimental object is consequently not ``the model in
+HBM'' but a verified mapping between:
+
+\begin{itemize}
+  \item worker threads and physical cores;
+  \item weight, KV, activation and workspace pages and their NUMA nodes;
+  \item local or remote memory traffic observed during each inference
+        phase; and
+  \item the time interval used for performance and energy measurement.
+\end{itemize}
+
+This mapping is also the basis for testing topology-aware execution.
+Independent replicas can use one local socket each; a single model can
+be sharded across sockets or SNC domains; and selected objects can be
+placed in different memory tiers.  These designs answer different
+questions and should not be grouped under a generic ``two-socket run''.
+
+\subsection{Metrics and boundaries}
+
+For \(O\) generated tokens in a synchronous request,
+
+\[
+  T_{\mathrm{E2E}}
+  =
+  T_{\mathrm{TTFT}} +
+  \sum_{j=2}^{O} T_{\mathrm{ITL},j}.
+\]
+
+At minimum, results should report TTFT, median and tail ITL, end-to-end
+latency, output tokens/s and requests/s.  The report must state whether
+tokenization, model loading, queueing and warm-up are included.  Static
+batch throughput and online serving goodput are different constructs:
+the latter additionally depends on arrivals, scheduling and declared
+latency objectives.
+
+Hardware counters are explanatory measurements rather than performance
+metrics.  HBM and DDR traffic, UPI traffic, memory-controller
+utilization, cache misses, achieved frequency and AMX-related counters
+can support a mechanism only when their collection overhead,
+multiplexing and scope are documented.
+
+\subsection{Predictions to test}
+
+The model yields three bounded predictions:
+
+\begin{enumerate}
+  \item local HBM should benefit low-batch decode more than compute-dense
+        prefill, but the speedup need not equal the STREAM bandwidth
+        ratio;
+  \item performance should change when the verified live set crosses a
+        local HBM boundary, with the size and direction of the change
+        depending on placement and memory mode; and
+  \item batching and lower-bit weights should reduce weight-bandwidth
+        pressure, while long contexts can reintroduce pressure through
+        the KV cache.
+\end{enumerate}
+
+These statements are hypotheses.  The literature reviewed next
+motivates them but does not establish them for CRESCO8.

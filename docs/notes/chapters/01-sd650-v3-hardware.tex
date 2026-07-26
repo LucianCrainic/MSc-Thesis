@@ -1,0 +1,291 @@
+%======================================================================
+%  Hardware platform: SD650 V3 and Intel Xeon CPU Max
+%======================================================================
+
+\section{Xeon Max and the SD650 V3}
+\label{sec:xeon-max-platform}
+
+\subsection{The unit of analysis}
+
+The Lenovo ThinkSystem SD650~V3 is a dense, direct-water-cooled server
+tray rather than a single compute node.  One tray contains two
+independent dual-socket nodes, and six trays fit in a 6U DW612S
+enclosure~\cite{lp1603}.  This distinction matters when reporting
+quantities: the CRESCO8 allocation is a \emph{node}; memory locality is
+defined first at the \emph{socket}; and the scheduler may allocate
+individual cores within the node.
+
+\begin{table}[tbp]
+\centering
+\small
+\caption{Hardware hierarchy and the properties relevant to this study.
+Product capability is separated from the installed CRESCO8
+configuration described in Section~\ref{sec:cresco8}
+~\cite{lp1603,cresco8doc}.}
+\label{tab:hardware-hierarchy}
+\begin{tabularx}{\textwidth}{@{}lYY@{}}
+\toprule
+\textbf{Level} & \textbf{Composition} & \textbf{Relevance} \\
+\midrule
+DW612S enclosure
+  & Six SD650~V3 trays (12 independent nodes)
+  & Shared power and cooling infrastructure; not an allocation unit. \\
+SD650~V3 tray
+  & Two independent dual-socket nodes
+  & High-density packaging; the two nodes do not form one shared-memory
+    system. \\
+Compute node
+  & Two Xeon processors connected by Intel UPI
+  & Scheduler allocation and the largest cache-coherent NUMA system used
+    by the single-node experiments. \\
+Xeon Max socket
+  & CPU cores, 64\,GB on-package HBM2e and eight DDR5 channels
+  & Primary locality domain and the cleanest unit for comparing HBM with
+    DDR5. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The product guide covers several processor, memory, storage and network
+options.  Most of those options are irrelevant to the thesis.  The
+important configuration is the Xeon CPU Max 9480 installed on CRESCO8:
+56 physical cores per socket, 64\,GB of HBM2e, eight DDR5-4800 channels,
+and four UPI links~\cite{intel9480,lp1603}.  A two-socket node therefore
+provides 112 physical cores and 128\,GB of nominal HBM capacity.  The
+node also contains DDR5, but its installed capacity and channel
+population are properties of CRESCO8, not of the product family.
+
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  socket/.style={draw=black!65, fill=neutralcol, rounded corners=3pt,
+                 minimum width=4.5cm, minimum height=1.35cm,
+                 align=center},
+  hbm/.style={draw=hbmcol!85!black, fill=hbmcol!18, rounded corners=2pt,
+              minimum width=4.5cm, minimum height=0.85cm, align=center},
+  ddr/.style={draw=ddrcol!85!black, fill=ddrcol!14, rounded corners=2pt,
+              minimum width=4.5cm, minimum height=0.85cm, align=center},
+  link/.style={{Stealth}-{Stealth}, thick, black!65}
+]
+  \node[socket] (s0) at (-3.8,0)
+    {\textbf{Socket 0}\\56 cores, AMX, LLC};
+  \node[socket] (s1) at (3.8,0)
+    {\textbf{Socket 1}\\56 cores, AMX, LLC};
+  \node[hbm, below=0.55cm of s0] (h0)
+    {64\,GB HBM2e\\high bandwidth};
+  \node[hbm, below=0.55cm of s1] (h1)
+    {64\,GB HBM2e\\high bandwidth};
+  \node[ddr, above=0.55cm of s0] (d0)
+    {8 DDR5 channels\\high capacity};
+  \node[ddr, above=0.55cm of s1] (d1)
+    {8 DDR5 channels\\high capacity};
+
+  \draw[link] (s0) -- node[above, fill=white, inner sep=2pt]{UPI} (s1);
+  \draw[link] (s0) -- (h0);
+  \draw[link] (s1) -- (h1);
+  \draw[link] (s0) -- (d0);
+  \draw[link] (s1) -- (d1);
+
+  \node[draw=black!35, dashed, rounded corners=4pt, inner sep=9pt,
+        fit=(d0)(d1)(h0)(h1),
+        label={[black!60]below:{one cache-coherent compute node}}] {};
+\end{tikzpicture}
+\caption{Conceptual locality map of a CRESCO8 Xeon Max node.  Each
+socket has local HBM and DDR5; access to the other socket traverses UPI.
+The diagram represents locality, not physical package routing.
+Author's synthesis based on the platform and cluster documentation
+~\cite{lp1603,cresco8doc}.}
+\label{fig:node-locality}
+\end{figure}
+
+\subsection{Compute capability: AMX does not remove the memory problem}
+
+Xeon Max is a Sapphire Rapids processor with conventional x86 cores,
+AVX-512, and Intel Advanced Matrix Extensions (AMX).  AMX adds per-core
+tile registers and matrix-multiply instructions for BF16 and INT8
+operands~\cite{intelmax,na2024llmcpu}.  It can substantially accelerate
+matrix operations with suitable shapes and kernels, especially the
+large matrix--matrix products encountered during prompt processing.
+There is no native INT4 AMX dot-product instruction; low-bit runtimes
+must unpack, dequantize, or use specialized integer kernels.  Whether a
+model benefits from AMX therefore depends on the runtime, data format,
+packing scheme and matrix dimensions.
+
+Peak instruction throughput is not an application result.  Small
+matrices, batch-one matrix--vector operations, packing overhead and
+memory stalls can leave the matrix units underused.  Likewise, the
+advertised maximum turbo frequency is a single-core limit, not the
+frequency of a socket executing sustained AMX kernels.  Frequency,
+package power and throttling state must be observed during experiments
+rather than inferred from specification tables.
+
+\subsection{The memory hierarchy}
+\label{sec:memory-hierarchy}
+
+HBM and DDR5 trade different resources.  HBM provides much greater
+aggregate bandwidth and 64\,GB of nominal capacity per socket.  DDR5
+provides substantially more capacity and can have lower unloaded access
+latency.  HBM is therefore not simply ``faster memory'': it is most
+valuable when a workload issues enough concurrent requests to approach
+its bandwidth and when the bandwidth-critical working set is placed
+locally.
+
+Published STREAM results illustrate both the advantage and the need for
+local measurement.  Na et al.\ report 588\,GB/s for HBM and
+233.8\,GB/s for DDR5 on a Xeon Max 9468 socket
+~\cite{na2024llmcpu}.  Ibeid et al.\ report 680--840\,GB/s for HBM and
+235--245\,GB/s for DDR5 on a related Xeon Max 9470C
+~\cite{ibeid2025aurora}.  These sustained values are 2.5--3.4 times
+apart, but the HBM results themselves differ by more than 15\%.  SKU,
+clustering mode, thread placement and benchmark configuration are
+plausible causes.  None of these numbers should be used as the bandwidth
+of CRESCO8 before the Max 9480 nodes are measured.
+
+Three paths must be distinguished in every result:
+
+\begin{itemize}
+  \item \textbf{local HBM or local DDR5}, reached from cores on the same
+        socket;
+  \item \textbf{remote memory}, reached through UPI from the other
+        socket; and
+  \item \textbf{mixed placement}, in which pages, threads or model
+        objects span several locality domains.
+\end{itemize}
+
+An apparently node-wide 128\,GB HBM allocation is consequently two
+64\,GB local tiers.  A workload uses the aggregate capacity and
+bandwidth only if data and computation are balanced across sockets.
+
+\subsection{HBM memory modes}
+\label{sec:hbm-modes}
+
+Xeon Max supports three ways to expose HBM
+~\cite{lp1603,intelmaxtuning}.  The mode is selected in firmware and is
+normally fixed for the lifetime of a boot.
+
+\begin{figure}[tbp]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  cpu/.style={draw=black!65, fill=neutralcol, rounded corners=2pt,
+              minimum width=3.9cm, minimum height=0.75cm, align=center},
+  hbm/.style={draw=hbmcol!85!black, fill=hbmcol!18, rounded corners=2pt,
+              minimum width=3.9cm, minimum height=0.75cm, align=center},
+  ddr/.style={draw=ddrcol!85!black, fill=ddrcol!14, rounded corners=2pt,
+              minimum width=3.9cm, minimum height=0.75cm, align=center},
+  absent/.style={draw=black!35, dashed, text=black!50, rounded corners=2pt,
+                 minimum width=3.9cm, minimum height=0.75cm, align=center},
+  link/.style={{Stealth}-{Stealth}, thick},
+  note/.style={font=\footnotesize, text width=4.2cm, align=center}
+]
+  \node[font=\bfseries] at (0,1.15) {HBM-only};
+  \node[cpu] (c0) at (0,0) {CPU cores};
+  \node[hbm] (h0) at (0,-1.25) {HBM};
+  \node[absent] (d0) at (0,-2.5) {DDR5 absent};
+  \draw[link] (c0) -- (h0);
+  \node[note] at (0,-3.55)
+    {One visible memory tier; capacity limited to HBM.};
+
+  \node[font=\bfseries] at (5.2,1.15) {Flat};
+  \node[cpu] (c1) at (5.2,0) {CPU cores};
+  \node[hbm] (h1) at (5.2,-1.25) {HBM NUMA nodes};
+  \node[ddr] (d1) at (5.2,-2.5) {DDR5 NUMA nodes};
+  \draw[link] (c1) -- (h1);
+  \draw[link] (c1.east) .. controls +(0.65,-0.55) and
+                                  +(0.65,0.55) .. (d1.east);
+  \node[note] at (5.2,-3.55)
+    {Both tiers are addressable; software controls placement.};
+
+  \node[font=\bfseries] at (10.4,1.15) {Cache};
+  \node[cpu] (c2) at (10.4,0) {CPU cores};
+  \node[hbm] (h2) at (10.4,-1.25) {HBM cache};
+  \node[ddr] (d2) at (10.4,-2.5) {DDR5 address space};
+  \draw[link] (c2) -- (h2);
+  \draw[link] (h2) -- (d2);
+  \node[note] at (10.4,-3.55)
+    {Hardware-managed, direct-mapped cache in front of DDR5.};
+\end{tikzpicture}
+\caption{The three Xeon Max memory modes, shown for one socket.  Flat
+mode is the only mode that exposes HBM and DDR5 as separately
+controllable memory tiers.  Author's synthesis from the Xeon Max product
+and tuning guides~\cite{lp1603,intelmaxtuning}.}
+\label{fig:hbm-modes}
+\end{figure}
+
+\begin{description}
+  \item[HBM-only mode.] The system contains no DDR5 and exposes HBM as
+  ordinary system memory.  It is simple for software but imposes a hard
+  capacity limit.  It is not the documented CRESCO8 configuration.
+
+  \item[Flat mode.] HBM and DDR5 share the physical address space but
+  appear as distinct NUMA memory nodes.  Applications can allocate
+  directly from a tier, or an external policy can bind pages with
+  \texttt{mbind}, libnuma or \texttt{numactl}.  Allocation is not enough:
+  first touch, page migration and memory mapping can change actual page
+  residency, which must be verified.
+
+  \item[Cache mode.] HBM is a hardware-managed, direct-mapped cache in
+  front of DDR5.  Applications see the DDR5 capacity without placing
+  objects explicitly, but software cannot choose which objects remain
+  in HBM.  Conflict misses, warm state and a working set near the cache
+  capacity can make performance workload-dependent
+  ~\cite{ibeid2025aurora}.
+\end{description}
+
+Flat mode provides the strongest experimental design because local HBM
+and local DDR5 can be compared on the same socket without changing the
+processor or executable.  A Flat-versus-Cache comparison answers a
+different question: it measures explicit placement against a hardware
+cache policy.
+
+\subsection{Clustering and NUMA}
+
+Memory mode is independent of the processor's clustering mode.  In
+Quadrant mode, one socket is normally presented as one compute locality
+domain.  Sub-NUMA Clustering (SNC4) exposes four domains per socket,
+each associated with a subset of cores, cache, DDR channels and HBM.
+SNC4 can increase bandwidth and reduce local latency for software that
+places workers and data per quadrant, but it also makes remote accesses
+easier to create.  In Flat+SNC4, the nominal 64\,GB HBM socket is divided
+into four 16\,GB locality domains.
+
+This distinction explains why a mode cannot be labelled universally
+``best''.  Ibeid et al.\ obtain the highest STREAM bandwidth with SNC4
+and explicit locality, whereas Na et al.\ observe worse inference
+performance and more remote traffic under SNC4
+~\cite{ibeid2025aurora,na2024llmcpu}.  The result depends on the
+software's placement policy, not only on the processor setting.
+
+\subsection{Cooling and instrumentation}
+
+Direct water cooling allows two high-power processors to operate in a
+dense node, but it does not guarantee a fixed frequency or energy
+efficiency.  The relevant quantities are measured socket frequency,
+temperature, package power and throttling state.  Product-guide claims
+about facility heat recovery or cooling savings are not evidence about
+inference performance.
+
+The SD650~V3 includes XClarity management and a TI INA226-based
+power/energy meter with 100\,Hz sampling capability
+~\cite{lp1603}.  This establishes a platform capability, not user
+access on CRESCO8.  Intel RAPL, management-controller telemetry and
+whole-node power meters cover different system boundaries; they must
+not be combined without first validating their scope, units, sampling
+and permissions.
+
+\subsection{Consequences for the thesis}
+
+The hardware background yields four requirements for the experimental
+work:
+
+\begin{enumerate}
+  \item identify the active memory and clustering modes from the
+        allocated node rather than from the product guide;
+  \item measure sustained local HBM and DDR5 behaviour before using a
+        Roofline or interpreting inference results;
+  \item bind both threads and pages, then verify page residency and
+        remote traffic; and
+  \item record frequency, thermal and power state so that a placement
+        effect is not confused with a change in operating conditions.
+\end{enumerate}

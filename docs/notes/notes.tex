@@ -1,0 +1,106 @@
+%======================================================================
+%  Thesis background notes: LLM inference on HBM-equipped CPUs
+%  Build from this directory with:
+%      tectonic --keep-logs --keep-intermediates --reruns 1 notes.tex
+%======================================================================
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.6cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{flafter}
+\usepackage{placeins}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, calc}
+\usepackage{listings}
+\usepackage{xurl}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true, linkcolor=accent, urlcolor=accent,
+            citecolor=accent]{hyperref}
+
+\definecolor{accent}{RGB}{128,0,32}
+\definecolor{hbmcol}{RGB}{213,125,28}
+\definecolor{ddrcol}{RGB}{55,105,165}
+\definecolor{neutralcol}{RGB}{235,238,242}
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\setlist[itemize]{leftmargin=*, itemsep=2pt, topsep=4pt}
+\setlist[enumerate]{leftmargin=*, itemsep=2pt, topsep=4pt}
+\captionsetup{font=small, labelfont=bf}
+\setlength{\emergencystretch}{2em}
+\widowpenalty=10000
+\clubpenalty=10000
+
+\lstdefinestyle{shell}{
+  language=bash,
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{neutralcol},
+  frame=single,
+  rulecolor=\color{black!25},
+  framerule=0.4pt,
+  columns=fullflexible,
+  keepspaces=true,
+  breaklines=true,
+  showstringspaces=false,
+  aboveskip=8pt,
+  belowskip=8pt
+}
+
+\title{\textbf{Technical Background and Experimental Rationale}\\[5pt]
+       \Large LLM Inference on HBM-Equipped CPUs\\[3pt]
+       \large The CRESCO8 Xeon Max Platform}
+\author{Lucian Crainic}
+\date{26 July 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+These notes establish the technical background for a thesis on large
+language model inference on CPUs with on-package High Bandwidth Memory
+(HBM).  They describe the Xeon Max memory hierarchy and the CRESCO8
+testbed, develop a performance model for prefill and autoregressive
+decode, and critically synthesize the relevant measurement literature.
+The central experimental comparison is local HBM versus local DDR5 on
+the same processor in Flat mode; comparisons with other processors are
+secondary because they change several variables at once.  Particular
+attention is given to working-set capacity, arithmetic intensity, NUMA
+placement, and the distinction between theoretical capability and
+measured behaviour.  The final part turns these concepts into a focused,
+reproducible experimental design that can be incorporated into the
+background and methodology chapters of the thesis.
+\end{abstract}
+
+\tableofcontents
+
+\clearpage
+\part{Experimental platform}
+\input{chapters/01-sd650-v3-hardware.tex}
+\input{chapters/02-cresco8-cluster.tex}
+
+\clearpage
+\part{Workload model and research evidence}
+\input{chapters/03-paper-llm-inference-cpu.tex}
+\input{chapters/04-paper-aurora-hbm.tex}
+
+\clearpage
+\part{Experimental design}
+\input{chapters/05-thesis-methodology.tex}
+
+\clearpage
+\bibliographystyle{plainnat}
+\bibliography{../../thesis/references}
+
+\end{document}

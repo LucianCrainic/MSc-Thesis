@@ -1,0 +1,177 @@
+%======================================================================
+%  CRESCO8 as the experimental testbed
+%======================================================================
+
+\section{CRESCO8 as the experimental testbed}
+\label{sec:cresco8}
+
+\subsection{Documented configuration}
+
+CRESCO8 is the current CRESCO system at the ENEA research centre in
+Portici.  It entered service in 2025 and is connected by a 200\,Gb/s
+Mellanox NDR fabric~\cite{cresco8doc,eneapress}.  The operational user
+page distinguishes three compute-node classes:
+
+\begin{table}[tbp]
+\centering
+\small
+\caption{CRESCO8 node classes documented by ENEAGRID.  Counts describe a
+dated operational document, not a permanent scheduler inventory
+~\cite{cresco8doc}.}
+\label{tab:cresco8-node-classes}
+\begin{tabularx}{\textwidth}{@{}lcccY@{}}
+\toprule
+\textbf{Class} & \textbf{Nodes} & \textbf{CPU cores/node}
+ & \textbf{Memory/node} & \textbf{Processor or accelerator} \\
+\midrule
+CPU
+ & 760 & 128 & 512\,GB DDR5
+ & 2$\times$ Xeon Platinum 8592+ \\
+CPU--HBM
+ & 15 & 112 & 1,024\,GB DDR5 + 128\,GB HBM
+ & 2$\times$ Xeon CPU Max 9480 \\
+GPU
+ & 17 & 128 & 512\,GB DDR5 + accelerator HBM
+ & 2$\times$ Xeon Platinum 8592+ and
+   4$\times$ Intel Data Center GPU Max 1550 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The same page calls this a 793-node system, although the listed classes
+sum to 792 and its reported core total is consistent with the 792-node
+breakdown.  Earlier commissioning material gives yet another snapshot
+~\cite{eneacresco8slides}.  This inconsistency is operational rather
+than scientific: every experiment should retain dated
+\texttt{sinfo -N} and \texttt{scontrol show node} output, and the thesis
+should report the observed inventory rather than silently reconcile
+historical documents.
+
+\FloatBarrier
+
+\subsection{Why the HBM partition supports a clean comparison}
+
+Each documented HBM node contains two Max 9480 sockets, 1\,TB of DDR5
+and 128\,GB of HBM.  This makes three comparisons possible, but they do
+not have equal evidential strength:
+
+\begin{enumerate}
+  \item \textbf{Local HBM versus local DDR5 on the same Max 9480
+        socket} is the primary comparison.  Processor, core count,
+        executable and most firmware conditions can be held constant.
+
+  \item \textbf{One socket versus two sockets, or Quadrant versus SNC4},
+        tests the runtime's response to topology.  It is a placement
+        experiment, not a pure memory-technology comparison.
+
+  \item \textbf{Max 9480 versus Platinum 8592+} is a secondary
+        system-level baseline.  The processors differ in generation,
+        core count, cache, clocks, memory channels and uncore behaviour.
+        The contrast cannot identify an HBM effect by itself.
+\end{enumerate}
+
+The installed DDR capacity does not reveal the DIMM layout.  Sixteen
+64\,GB DIMMs would populate all channels, but the platform also permits
+eight 128\,GB DIMMs with Xeon Max~\cite{lp1603}.  Channel population,
+memory frequency and local bandwidth therefore require direct
+inspection.  The presence of DDR5 also means that the nodes use Flat or
+Cache mode rather than the no-DDR HBM-only configuration, but the ENEA
+page does not identify which mode is active.  In Flat mode, HBM appears
+as memory-only NUMA nodes; in Cache mode it does not appear separately.
+
+The NDR link has a raw one-direction rate of 25\,GB/s per node, far
+below local HBM bandwidth.  Multi-node inference may still be necessary
+for capacity, but communication can then dominate the placement effect.
+Single-node experiments should establish a stable result before adding
+distributed parallelism.
+
+\subsection{Scheduler and storage context}
+
+The documented production partition is \texttt{cresco8\_hbm}, with 14
+nodes and a 24-hour limit; \texttt{cresco8\_hbm\_dbg} lists two nodes
+and a one-hour limit~\cite{cresco8doc}.  Their hostnames can overlap, so
+these counts must not be added.
+
+Compute nodes are reached only through Slurm.  The front ends are for
+editing, compilation and submission, not benchmarking.  ENEAGRID
+provides AFS for shared home directories and Lustre for parallel I/O;
+large model files and benchmark output belong on the latter, subject to
+the site's current mount points and quotas.  Compiler, MPI and profiler
+modules listed on the web page are useful starting points, but an
+experiment must record the modules and linked libraries actually loaded
+on the run date.
+
+\subsection{First allocation: capture facts before benchmarking}
+\label{sec:first-allocation}
+
+The first HBM allocation should create a machine-readable system
+manifest.  The following script is deliberately a topology-capture
+skeleton rather than a performance benchmark; account names, available
+utilities and Slurm resource syntax must be checked on the live system.
+
+\begin{lstlisting}[style=shell,
+  caption={Minimal exclusive allocation for a CRESCO8 topology
+  manifest.}]
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=112
+#SBATCH --partition=cresco8_hbm
+#SBATCH --exclusive
+#SBATCH --hint=nomultithread
+#SBATCH --output=%j-system.txt
+
+set -u
+
+echo "job_id=${SLURM_JOB_ID}"
+echo "host=$(hostname)"
+date --iso-8601=seconds
+scontrol show job "${SLURM_JOB_ID}"
+lscpu
+lscpu --extended
+numactl --hardware
+lstopo-no-graphics 2>/dev/null || true
+cat /sys/devices/system/cpu/smt/active 2>/dev/null || true
+findmnt -t lustre 2>/dev/null || true
+module list 2>&1 || true
+\end{lstlisting}
+
+The manifest should be extended, subject to permissions, with the
+following evidence:
+
+\begin{table}[tbp]
+\centering
+\small
+\caption{Minimum platform record for an inference result.}
+\label{tab:platform-record}
+\begin{tabularx}{\textwidth}{@{}lY@{}}
+\toprule
+\textbf{Category} & \textbf{Record} \\
+\midrule
+Identity
+ & Hostname, Slurm job ID, partition, date and node allocation. \\
+Processor
+ & Exact SKU, sockets, physical cores, SMT state, microcode, governor,
+   turbo policy and observed frequency. \\
+Memory
+ & Memory and clustering modes, NUMA distance matrix, HBM and DDR
+   node IDs, DIMM population, huge-page state and measured local/remote
+   bandwidth. \\
+I/O
+ & Lustre mount and striping used for model loading; NIC identity and
+   NUMA affinity if multi-node tests are attempted. \\
+Software
+ & OS and kernel, loaded modules, compiler, runtime commit, linked
+   libraries, build flags and complete command line. \\
+Telemetry
+ & Available RAPL, performance-counter and management-controller
+   interfaces, including permissions and measurement boundaries. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+This separation between documented configuration and observed
+configuration is important.  Vendor documents establish what the
+platform can support, and ENEAGRID describes a dated cluster state.
+Only the archived manifest establishes the conditions under which a
+reported result was obtained.
