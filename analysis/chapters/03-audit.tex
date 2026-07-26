@@ -1,0 +1,213 @@
+\section{Provisional audit of the inference runtime}
+\label{sec:audit}
+
+\subsection{Purpose and method}
+
+The literature motivates a memory-placement experiment, but it does
+not determine whether \lcpp{} must be modified.  This audit asks a more
+limited question: which controls are present in the source snapshot,
+and which experiments can be performed without a patch?
+
+The subject is upstream \lcpp{} commit
+\path{ff067f76dd8e9e05f0528056f1274adf01a54d70}, inspected on
+26 July 2026~\cite{llamacpp2026}.  The audit covers CMake
+configuration, CPU buffer types, model loading, the KV-cache allocator
+and NUMA argument handling.  File and line references are pinned to that
+commit.  They describe source structure, not observed behaviour on
+CRESCO8; all material findings require a build and residency check
+before they are quoted as thesis results.
+
+\subsection{What is already sufficient for the primary experiment}
+
+A controlled whole-process comparison does not require native
+memory-tier objects in the runtime.  With Flat mode verified, an external
+launcher can bind both threads and memory to one socket's HBM node or
+the corresponding DDR node.  A controlled page state then permits the
+same binary, model, quantization and command to be compared under the
+two policies.
+
+This approach has three advantages.  It changes no runtime code, keeps
+the causal treatment small, and establishes whether a tier effect is
+large enough to justify finer placement work.  Its main risks are
+file-backed model pages that pre-exist on another node, first-touch by
+an unintended thread, automatic NUMA balancing, and hidden packed
+copies.  These are measurement problems to verify with page-residency
+tools, not reasons to begin with a runtime rewrite.
+
+\subsection{Static findings}
+
+\begin{table}[htbp]
+\centering
+\footnotesize
+\caption{Static capability audit at commit \commitshort{}.  ``Not
+exposed'' means no stable user control was found in the inspected path;
+it does not mean that external Linux placement is impossible.}
+\label{tab:runtime-audit}
+\begin{tabularx}{\textwidth}{@{}P{2.8cm}P{5.35cm}Y@{}}
+\toprule
+\textbf{Capability} & \textbf{Source evidence} &
+\textbf{Consequence for the thesis} \\
+\midrule
+One CPU backend device
+& \path{ggml/src/ggml-cpu/ggml-cpu.cpp:508--524} returns one device
+  and accepts only index zero.
+& The scheduler does not represent individual CPU NUMA domains as
+  devices.  External binding remains available. \\
+\addlinespace
+HBM build option
+& \path{ggml/CMakeLists.txt:151} defines
+  \texttt{GGML\_CPU\_HBM}.  The macro is private to the
+  \texttt{ggml-cpu} target
+  (\path{ggml/src/ggml-cpu/CMakeLists.txt:88--95}), while the default
+  allocator is compiled in \texttt{ggml-base}
+  (\path{ggml/src/CMakeLists.txt:192--209}).
+& A successful HBM-enabled build is not evidence that default model
+  allocations use HBM.  Confirm with symbol/build inspection and
+  page residency. \\
+\addlinespace
+Dedicated HBM buffer type
+& \path{ggml/src/ggml-cpu/hbm.cpp:24--54} implements a
+  \texttt{CPU\_HBM} allocator, but the CPU extra-buffer list at
+  \path{ggml/src/ggml-cpu/ggml-cpu.cpp:42--73} does not register it.
+& The source contains useful plumbing, but no reachable
+  \texttt{CPU\_HBM} placement target was found in the ordinary model
+  loading path. \\
+\addlinespace
+Per-tensor override
+& \texttt{-ot}/\texttt{--override-tensor} maps a tensor-name pattern
+  to a buffer type, but the user-visible map is populated from device
+  default buffer types
+  (\path{common/arg.cpp:249--281}).
+& The mechanism can select devices such as CPU/GPU; it does not expose
+  local CPU HBM versus local CPU DDR in this snapshot. \\
+\addlinespace
+KV-cache placement
+& For CPU execution, each layer starts with
+  \texttt{ggml\_backend\_cpu\_buffer\_type()}; an offloaded layer uses
+  its device buffer
+  (\path{src/llama-kv-cache.cpp:210--223}).
+& KV data type can be configured, but a separate CPU HBM/DDR placement
+  selector was not found. \\
+\addlinespace
+NUMA control
+& \texttt{--numa} offers \texttt{distribute}, \texttt{isolate} and
+  \texttt{numactl} modes
+  (\path{common/arg.cpp:2551--2564}).  The implementation enumerates
+  NUMA CPUs and applies thread affinity
+  (\path{ggml/src/ggml-cpu/ggml-cpu.c:636--717,2148--2191}).
+& Runtime NUMA support should not be confused with memory-tier
+  placement.  Use the external process memory policy and verify it. \\
+\addlinespace
+AMX path
+& The AMX buffer registers quantized matrix multiplication for selected
+  formats, including Q4, Q5, Q6 and Q8 families under shape constraints
+  (\path{ggml/src/ggml-cpu/amx/amx.cpp:19--40,143--190}).
+& AMX support exists, but kernel coverage for the selected model and
+  phase must be demonstrated from build features, logs, disassembly or
+  counters. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{The HBM option requires runtime confirmation}
+
+The most consequential source observation concerns
+\texttt{GGML\_CPU\_HBM}.  The generic CPU buffer allocator calls
+\texttt{ggml\_aligned\_malloc} in
+\path{ggml/src/ggml-backend.cpp:2299--2313}.  That function contains an
+\texttt{hbw\_posix\_memalign} branch in
+\path{ggml/src/ggml.c:331--383}.  At the pinned commit, however,
+\texttt{ggml.c} belongs to \texttt{ggml-base}, while the HBM macro is
+defined privately on the separate CPU backend target.  Static reading
+therefore predicts that the generic allocator is compiled without the
+HBM branch.
+
+There is also a dedicated HBM buffer type in \path{hbm.cpp}; it is
+compiled when the CPU backend is built, but no registration in the
+CPU's extra-buffer list was found.  Taken together, these facts predict
+that enabling the CMake option can advertise \texttt{CPU\_HBM=1}
+without changing the default model allocation path.  This should be
+written as a \emph{prediction}, not as a measured defect, until two
+builds are compared on CRESCO8.
+
+A minimal confirmation consists of:
+
+\begin{enumerate}
+  \item retain CMake output and the final compile commands for
+        \texttt{ggml.c}, \texttt{hbm.cpp} and the CPU backend;
+  \item inspect the resulting symbols or disassembly for calls to
+        \texttt{hbw\_posix\_memalign};
+  \item run an identical small model with the option off and on;
+  \item record per-node page residency and throughput under a policy
+        designed to distinguish HBM from DDR; and
+  \item repeat with memory mapping disabled if pre-existing file-backed
+        pages prevent an interpretable first-touch result.
+\end{enumerate}
+
+If the prediction is wrong, the audit should be corrected rather than
+defended.  A static audit is valuable precisely because it supplies a
+falsifiable test.
+
+\subsection{Independent weights and KV placement}
+
+Selective tiering is more demanding than whole-process binding.
+\lcpp{} already has two useful abstractions: model tensors may be
+overridden by name pattern, and KV buffers are created per layer and per
+device.  In the inspected command path, neither abstraction exposes two
+CPU memory tiers.  Consequently, the user cannot state ``weights in
+local HBM and KV in local DDR'' as a normal command-line policy.
+
+This is a real capability limitation for the proposed capacity study,
+but it is not yet a performance gap.  It becomes a thesis-relevant
+software problem only if all of the following hold:
+
+\begin{enumerate}
+  \item the whole-process HBM baseline is bandwidth-limited and faster
+        than DDR;
+  \item the desired live set exceeds usable local HBM;
+  \item existing operating-system placement cannot express a stable,
+        auditable split; and
+  \item a plausible selective policy can be evaluated against the best
+        unmodified baseline.
+\end{enumerate}
+
+The smallest likely intervention is to register distinct CPU HBM and
+DDR buffer types and make the selected type reachable by the existing
+override machinery.  A separate KV selector may then be needed.
+Representing every NUMA domain as a backend device is a much larger
+architectural change and should not be assumed necessary before
+measurement.
+
+\subsection{AMX and the Aurora result}
+
+Goto et al.\ show that oneMKL uses AMX in CPU-side HPL-MxP work
+~\cite{goto2026aurorahpl}.  This does not imply that the chosen
+\lcpp{} model follows the same kernels.  The pinned source has an AMX
+path for selected quantized matrix multiplications, including repacked
+weights and shape restrictions.  The experiment must therefore report
+which model tensors use the AMX buffer, whether the path differs between
+prefill and decode, and how much extra packed storage it creates.
+
+This distinction matters for the memory-tier comparison.  A run that
+silently changes kernel coverage or packed representation changes both
+\(W\) and \(Q\) in the model of Section~\ref{sec:synthesis}.  Build
+features, runtime logs and peak resident memory belong in every run
+manifest.
+
+\subsection{Audit conclusion}
+
+The audit does not justify making a \lcpp{} fork the thesis objective.
+It supports a staged conclusion:
+
+\begin{itemize}
+  \item the primary, whole-process local-HBM versus local-DDR comparison
+        is feasible with an unmodified, pinned runtime and verified
+        operating-system placement;
+  \item native HBM support in the inspected snapshot is uncertain and
+        should be tested, not assumed;
+  \item independent CPU-side weight and KV placement is not exposed in
+        the inspected user path; and
+  \item a runtime contribution is warranted only if the baseline shows
+        a material, reproducible opportunity that existing controls
+        cannot express.
+\end{itemize}

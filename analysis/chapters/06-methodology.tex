@@ -1,0 +1,255 @@
+\section{Evaluation and validity}
+\label{sec:methodology}
+
+\subsection{Experimental unit and controlled variables}
+
+For the primary study, the experimental unit is one completed inference
+run on one allocated node under one memory policy.  The HBM and DDR
+treatments must use the same:
+
+\begin{itemize}
+  \item physical socket, active cores and thread affinity;
+  \item model file, tokenizer, quantization and model hash;
+  \item runtime commit, compiler, libraries, build flags and AMX path;
+  \item prompt tokens, generation length, batch/concurrency and decoding
+        settings;
+  \item page size, memory mapping/locking policy and warm-up protocol;
+        and
+  \item metric definitions and measurement code.
+\end{itemize}
+
+Only the memory-node policy changes.  If HBM and DDR reside under
+different CPU affinities, the correct comparison pairs each memory node
+with the same local cores or deliberately fixes cores and documents the
+distance.  The platform topology, not a node-number naming convention,
+determines the pair.
+
+\subsection{Placement validation}
+
+Placement is a measured intermediate outcome.  A run is included in the
+causal HBM/DDR comparison only when its important pages reside on the
+intended node and remote traffic remains within a pre-specified
+tolerance.
+
+A practical validation protocol is:
+
+\begin{enumerate}
+  \item record \texttt{lscpu}, \texttt{numactl --hardware}, NUMA
+        distances and available memory immediately before the run;
+  \item launch with explicit CPU and memory binding;
+  \item capture page counts per NUMA node after model loading, after
+        warm-up and during the measured phase;
+  \item record whether weights are mapped or copied, and whether packed
+        representations create additional allocations;
+  \item log automatic NUMA balancing, transparent huge pages and any
+        migration observed; and
+  \item retain failed placement checks as failed trials rather than
+        silently replacing their values.
+\end{enumerate}
+
+System-wide page-cache eviction is disruptive on a shared cluster and
+must not be assumed available.  Alternatives include exclusive nodes,
+administrator-approved cache handling, a controlled non-mmap load path,
+or distinct copied model files.  Whichever protocol is chosen must be
+tested for equivalent numerical output and documented.  Reversing the
+treatment order and interleaving HBM/DDR trials helps detect residual
+cache and thermal drift.
+
+\subsection{Workload phases and metrics}
+
+Prefill and decode should be delimited by the runtime or by a validated
+instrumentation layer.  The primary metrics are:
+
+\begin{description}[leftmargin=3.1cm, style=nextline, itemsep=4pt]
+  \item[TTFT] wall-clock time from request admission to the first
+        generated token, with tokenization and model load explicitly
+        included or excluded;
+  \item[prefill throughput] prompt tokens processed per second during
+        the prefill interval;
+  \item[ITL] time between successive generated tokens after the first,
+        reported as a distribution and not only a mean;
+  \item[decode throughput] generated tokens per second for the measured
+        steady interval; and
+  \item[memory evidence] achieved HBM/DDR bandwidth, remote traffic,
+        peak resident memory and per-node page counts.
+\end{description}
+
+If a single run contains both phases, its end-to-end latency may be
+reported as a user metric, but it cannot replace phase measurements.
+Early decode tokens may behave differently from later tokens as the KV
+cache grows; the analysis should state which tokens are excluded as
+warm-up and which define the sustained interval.
+
+\subsection{Experiment matrix and repetition}
+
+Pilot runs should determine the feasible matrix rather than fixing many
+arbitrary combinations in advance.  The final design should nevertheless
+contain:
+
+\begin{itemize}
+  \item at least one configuration comfortably below HBM capacity;
+  \item at least one second model or quantization to test whether the
+        effect follows live-set size rather than a single model;
+  \item two or more arithmetic-intensity points, for example sequence
+        concurrency or batch; and
+  \item context/capacity points concentrated near any observed
+        transition, with fewer points far from it.
+\end{itemize}
+
+Runs are performed in blocks on the same node allocation where
+possible.  Within a block, treatment order is randomised or balanced.
+The number of repetitions is set from pilot variance and a target
+precision for the HBM/DDR effect, not from a fixed convention such as
+three runs.
+
+For each configuration, report all valid observations, median and a
+dispersion measure, plus a confidence interval for the paired or
+blocked treatment effect.  Means may be added when the distribution is
+well behaved.  Outlier rules must be defined from operational evidence
+(for example, a logged placement failure or node interruption), not
+from an undesirable performance value.
+
+\subsection{Mechanism analysis}
+
+A credible explanation triangulates three measurements:
+
+\begin{enumerate}
+  \item \textbf{placement:} the intended pages are local to the selected
+        tier;
+  \item \textbf{pressure:} the measured phase issues enough traffic to
+        make memory bandwidth a plausible limit; and
+  \item \textbf{response:} the user metric changes consistently with
+        the achieved resource.
+\end{enumerate}
+
+The arithmetic intensity estimate
+\[
+  I_{\mathrm{observed}} =
+  \frac{\text{estimated or counted operations}}
+       {\text{measured memory bytes}}
+\]
+can be compared with a machine balance derived from local
+microbenchmarks.  Because operations are difficult to count exactly in
+quantized kernels, the thesis should state whether the numerator comes
+from model arithmetic, hardware events or runtime instrumentation.
+The conclusion should not rely on a precise Roofline position when the
+counter mapping is uncertain.
+
+The HBM/DDR speedup is
+\[
+  S_{\mathrm{tier}} =
+  \frac{T_{\mathrm{DDR}}}{T_{\mathrm{HBM}}}
+\]
+for latency, or the inverse ratio for throughput.  Compare it with the
+measured bandwidth ratio as a bound and explanatory reference, not as
+a target.  If the speedup changes with batch or context, show whether
+achieved bandwidth, compute utilisation or live set changes at the same
+point.
+
+\subsection{Correctness and output equivalence}
+
+Memory placement should not change model semantics.  Identical seeds,
+deterministic decoding where supported, token sequences and numerical
+checks are required across HBM and DDR.  A runtime patch additionally
+needs:
+
+\begin{itemize}
+  \item allocation tests for requested and insufficient tier capacity;
+  \item page-residency tests for each buffer type;
+  \item equality or tolerance checks against the unmodified runtime;
+  \item clear logging of the selected policy and actual allocation; and
+  \item failure rather than silent fallback when an experiment requests
+        strict placement.
+\end{itemize}
+
+Quality differences between quantizations are not caused by HBM, but
+they matter when comparing model formats.  Cross-quantization
+performance results should therefore be labelled as separate operating
+points and accompanied by an appropriate quality check or a citation
+to the model's validated representation.
+
+\subsection{Threats to validity}
+
+\paragraph{Internal validity.}
+First-touch, file-backed pages, migration, remote memory, frequency
+changes and different kernel paths can confound the tier comparison.
+The placement and build checks above address these threats.  The study
+must avoid comparing HBM and DDR on different sockets unless socket is
+modelled as a block.
+
+\paragraph{Construct validity.}
+Tokens per second alone does not represent interactive inference.
+TTFT and ITL are necessary.  STREAM bandwidth is not LLM bandwidth;
+hardware counters and phase timing provide the connecting evidence.
+Nominal model size is not resident live set.
+
+\paragraph{Statistical conclusion validity.}
+Autocorrelation within an allocation, node-to-node variation and
+thermal drift make individual runs non-independent.  Blocking by node
+and allocation, balanced order and confidence intervals over the
+appropriate unit reduce false precision.
+
+\paragraph{External validity.}
+One CPU generation, one runtime and a limited model set do not establish
+all CPU or LLM behaviour.  Results should be stated for the tested
+Max~9480 configurations and explained through measurable variables so
+that later systems can test transfer.
+
+\paragraph{Software validity.}
+Upstream \lcpp{} changes quickly.  The primary dataset must use a frozen
+commit and archived build manifest.  A later version can be a
+replication point.  Static source observations must not be presented as
+runtime behaviour without the validation described in
+Section~\ref{sec:audit}.
+
+\subsection{Falsification criteria}
+
+The programme is designed to survive negative evidence.  The following
+outcomes revise its interpretation:
+
+\begin{itemize}
+  \item If valid HBM and DDR runs have equivalent phase performance and
+        neither approaches memory bandwidth, the workload point is not
+        memory-bound; the thesis should report the boundary rather than
+        claim a software failure.
+  \item If they are equivalent while both show high bandwidth pressure,
+        investigate cache behaviour, counters and hidden placement
+        before accepting the null effect.
+  \item If DDR is faster under light load, this is consistent with the
+        latency evidence in Ibeid et al.\ and should be explained rather
+        than discarded.
+  \item If unmanaged two-socket execution loses but local replicas
+        scale aggregate throughput, the issue is placement and workload
+        decomposition, not a universal single-socket advantage.
+  \item If existing operating-system controls express the best selective
+        policy, a runtime patch has no thesis justification.
+  \item If a patch changes placement correctly but not performance, the
+        software capability exists but the proposed policy lacks a
+        performance contribution for the tested regime.
+\end{itemize}
+
+\subsection{Immediate actions}
+
+The next work should be empirical preparation, not additional general
+background prose:
+
+\begin{enumerate}
+  \item confirm access to a Max~9480 node and the available Flat/Cache
+        and Quadrant/SNC settings with CRESCO8 administrators;
+  \item capture one complete topology and memory-capacity manifest;
+  \item build the pinned \lcpp{} snapshot with reproducible compiler
+        flags and verify AMX features;
+  \item test whole-process HBM and DDR placement with a small model and
+        inspect page residency;
+  \item measure local and deliberately remote memory bandwidth under
+        the same core binding; and
+  \item use pilot variance and observed usable HBM to freeze the Stage~1
+        model, quantization, contexts and repetitions.
+\end{enumerate}
+
+After these checks, the short supervisor overview in
+\texttt{analysis/overview/} can be updated with an agreed primary
+research question and a feasible experiment matrix.  Detailed commands,
+raw manifests and exploratory results belong in a reproducibility
+repository or thesis appendix rather than in the literature-review
+chapter.
