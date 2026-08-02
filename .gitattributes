@@ -1,0 +1,2 @@
+# Third-party LaTeX thesis template files should not affect language statistics.
+thesis/sapthesis.bst linguist-vendored
