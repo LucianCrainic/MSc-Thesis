@@ -1,0 +1,4 @@
+# Build tooling for this repository (see tasks.py).
+# Tectonic itself is a separate, non-Python dependency:
+#   macOS:  brew install tectonic
+invoke>=2.2
