@@ -37,7 +37,7 @@ before measurement and have been excluded.
 - Copied screenshots and paper figures were replaced by four original vector
   diagrams. A generic cluster schematic and small partition table were removed
   because prose and the node-class table already conveyed the useful facts.
-  The old raster extracts remain in `images/` as a working-source archive but
+  The old raster extracts remain in `figures/` as a working-source archive but
   are not referenced by, or required for, the reviewed PDF.
 - The repeated phase-comparison and literature-role tables were removed after
   their useful distinctions were incorporated into the surrounding analysis.
@@ -67,7 +67,7 @@ assessments rather than controlled ablations.
 
 The Dongarra, Hoefler, and Matsuoka manuscript is recorded as an unpublished
 2026 manuscript, not as a published *Communications of the ACM* article. The
-bibliography is centralized in `thesis/references.bib` so the same checked
+bibliography is centralized in `bibliography/references.bib` so the same checked
 records can be reused by the thesis.
 
 Three transfer limits require particular care in the thesis. Na et al.'s

@@ -1,0 +1,191 @@
+\section{Cross-paper synthesis}
+\label{sec:synthesis}
+
+\subsection{The explanatory chain}
+
+The literature does not support a single statement such as ``HBM makes
+LLMs faster''.  It supports a chain of conditional propositions.  A
+workload phase determines the data reused and the operations issued;
+the live set and placement determine which memory tier serves those
+accesses; and the resulting bandwidth, latency and matrix throughput
+determine a user-visible metric.  Skipping any link turns a measured
+correlation into an unsupported cause.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  node distance=5mm,
+  >=Latex,
+  chainbox/.style={
+    draw=black!55,
+    fill=neutralcol,
+    rounded corners=2pt,
+    text width=2.45cm,
+    minimum height=1.25cm,
+    align=center,
+    font=\small
+  },
+  hbmstep/.style={chainbox, fill=hbmcol!15, draw=hbmcol!80!black},
+  metric/.style={chainbox, fill=accent!8, draw=accent}
+]
+  \node[chainbox] (phase) {workload phase\\prefill or decode};
+  \node[chainbox, right=of phase] (set) {verified live set\\weights, KV, scratch};
+  \node[hbmstep, right=of set] (place) {residency\\local HBM or DDR};
+  \node[chainbox, right=of place] (resource) {achieved resource\\bandwidth or compute};
+  \node[metric, right=of resource] (metric) {reported metric\\TTFT, ITL, tokens/s};
+  \draw[->, thick] (phase) -- (set);
+  \draw[->, thick] (set) -- (place);
+  \draw[->, thick] (place) -- (resource);
+  \draw[->, thick] (resource) -- (metric);
+\end{tikzpicture}
+\caption{Causal chain required for an interpretable memory-tier result.
+The experiment must observe, rather than assume, the central three
+links.}
+\label{fig:causal-chain}
+\end{figure}
+
+For a phase with work \(W\), data movement \(Q\), peak relevant compute
+\(P\), and sustained local bandwidth \(B\), a Roofline-style lower bound
+is~\cite{williams2009roofline}
+\[
+  T_{\mathrm{phase}} \;\ge\;
+  \max\!\left(\frac{W}{P},\,\frac{Q}{B}\right)
+\]
+The equation is a diagnostic model, not
+a prediction of the HBM speedup.  \(Q\) depends on quantization, cache
+reuse, batching, context, packing and runtime behaviour; \(B\) must be
+measured under the same placement and core binding as the inference
+run.
+
+\subsection{Conclusions supported by more than one source}
+
+\paragraph{HBM is a conditional resource.}
+Ibeid et al.\ show a large sustained-bandwidth advantage for local HBM,
+but also a DDR latency advantage at low load and capacity-dependent
+application behaviour.  Na et al.\ show that an LLM runtime can lose
+performance when it fails to respect topology.  Goto et al.\ use DDR
+for the oversized global matrix and HBM only for staged CPU-side panel
+data.  Together, these results support deliberate placement based on
+phase and live-set size.  They do not support an all-HBM policy for
+every allocation.
+
+\paragraph{Prefill and decode must be reported separately.}
+Prefill processes many prompt tokens and exposes comparatively large
+matrix operations; autoregressive decode repeatedly streams weights for
+few newly generated tokens and grows the KV state with context and
+batch.  Their relative pressure on AMX and memory bandwidth can differ.
+One end-to-end average can therefore hide the mechanism.  Time to first
+token (TTFT), inter-token latency (ITL) and phase throughput are separate
+outcomes.
+
+\paragraph{Capacity is a live-set property.}
+Nominal model-file size is not sufficient.  Runtime-packed weights, KV
+state, graph and scratch buffers, allocator overhead and page cache can
+change resident memory.  Goto et al.'s explicit DDR/HBM staging makes
+the general issue concrete: the bulk object can exceed the high-bandwidth
+tier even when a critical subproblem fits.  The thesis should measure
+residency and peak allocation before labelling a run ``within 64\,GB''.
+
+\paragraph{Topology is part of the treatment.}
+The papers' apparently different SNC4 outcomes are not a hardware
+contradiction.  Ibeid et al.\ obtain high SNC4 bandwidth with explicit
+domain placement and recover MPI performance through network mapping.
+Na et al.\ observe remote traffic and lower inference performance with
+the runtime setup they test.  Goto et al.\ co-locate ranks, cores,
+memory, GPUs and NICs to prevent cross-socket traffic.  SNC4 exposes
+locality; it does not make software local automatically.
+
+\paragraph{CPU--GPU comparisons are configuration-specific.}
+Na et al.\ compare a direct CPU path with single-GPU FlexGen offload.
+Goto et al.\ instead demonstrate a highly tuned, heterogeneous CPU--GPU
+pipeline.  These are different questions.  Neither supports a general
+claim that one processor class is superior.  A GPU comparison is not
+needed to answer the primary HBM-versus-DDR question.
+
+\subsection{What the Aurora deployment paper adds}
+
+Goto et al.\ supply a detailed production example of explicit tier
+staging.  They also strengthen three methodological requirements:
+
+\begin{enumerate}
+  \item report the exact mapping of compute, memory and communication
+        resources;
+  \item analyse phase time, because the dominant bottleneck changes as
+        execution progresses; and
+  \item distinguish observed campaign outcomes from controlled
+        ablations.
+\end{enumerate}
+
+The same paper also sets a limit on the analogy.  HPL's bulk DDR matrix,
+HBM-staged panels, GPU GEMM, MPI communication and global scale differ
+from a single-node \lcpp{} decode loop.  The paper suggests that
+selective tiering is worth testing; it does not establish which LLM
+tensors should occupy HBM or how much improvement to expect.
+
+\subsection{Claims that should not enter the thesis as facts}
+
+The following statements are either too broad or not identified by the
+reviewed evidence:
+
+\begin{itemize}
+  \item that HBM makes inference faster by the STREAM bandwidth ratio;
+  \item that one socket is inherently better than two sockets;
+  \item that SNC4 is inherently better or worse than Quadrant mode;
+  \item that CPUs outperform GPUs for LLM inference in general;
+  \item that a mixed-precision HPL/HPL-MxP ratio measures AMX speedup;
+  \item that \lcpp{} is already the cause of a performance limitation
+        before a correctly placed baseline is run; or
+  \item that a gap in the supplied corpus is a field-wide novelty claim.
+\end{itemize}
+
+\subsection{From evidence to candidate questions}
+
+Table~\ref{tab:evidence-questions} separates the direct extension of
+existing evidence from more speculative work.
+
+\begin{table}[H]
+\centering
+\small
+\caption{How the reviewed evidence motivates, but does not answer, the
+candidate thesis questions.}
+\label{tab:evidence-questions}
+\begin{tabularx}{\textwidth}{@{}P{3.1cm}YY@{}}
+\toprule
+\textbf{Candidate question} & \textbf{Existing basis} &
+\textbf{Missing observation} \\
+\midrule
+Same-socket HBM versus DDR for quantized inference
+& Xeon Max memory bandwidth and BF16 inference are each measured
+  separately.
+& Causal tier comparison with identical socket, runtime, model,
+  quantization, binding and phase. \\
+\addlinespace
+Capacity and KV boundary
+& HBM capacity effects occur in HPC; LLM KV state grows with context
+  and batch.
+& Measured live-set crossing with weights and KV residency identified
+  separately. \\
+\addlinespace
+Topology-aware scaling
+& Explicit SNC4 placement helps HPC; unmanaged locality harms the
+  reported LLM run.
+& Controlled local, remote, replica and partitioned designs under one
+  software version. \\
+\addlinespace
+Independent memory-tier placement
+& Aurora HPL stages selected data between DDR and HBM.
+& A CPU LLM runtime control and an ablation showing that selective
+  placement beats the best whole-process policy. \\
+\addlinespace
+Energy per token
+& The position paper motivates efficiency.
+& A validated measurement boundary and uncertainty for node or socket
+  energy. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The first question is the strongest because it follows directly from
+the corpus and can be answered without modifying the runtime.  The
+others become valuable only after the baseline identifies where the
+working set, remote traffic or software control is limiting the result.

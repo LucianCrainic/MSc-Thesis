@@ -1,11 +1,14 @@
 % ============================================== %
 % Author: Lucian Dorin Crainic <https://luciancrainic.github.io/>
 %
-% Thesis Title: Machine Learning for Human Movement Classification Based on Kinect Skeleton Data.
-% 
-% Bachelor of Science in Computer Science, Sapienza University of Rome.
+% Thesis Title: TODO
 %
-% https://github.com/LucianCrainic/bsc-thesis/
+% Master of Science in Computer Science, Sapienza University of Rome.
+%
+% https://github.com/LucianCrainic/MSc-Thesis/
+%
+% Build from the repository root with:
+%   inv thesis
 %
 % ============================================== %
 
@@ -102,17 +105,17 @@
 }
 % ================== ABSTRACT ==================
 
-\input{./chapter/abstract}
+\input{front-matter/abstract}
 
 \tableofcontents
 
 \mainmatter
 \let\cleardoublepage\clearpage
 % ================== CHAPTER 1 ==================
-\input{./chapter/1}
+\input{chapters/01-introduction}
 
 % ================== ACKNOWLEDGMENTS ==================
-\input{./chapter/ack}
+\input{front-matter/acknowledgements}
 
 \backmatter
 \cleardoublepage
@@ -121,6 +124,6 @@
 % ================== BIBLIOGRAPHY ==================
 \addcontentsline{toc}{chapter}{Bibliography}
 \bibliographystyle{sapthesis}
-\bibliography{references.bib}
+\bibliography{../bibliography/references}
 
 \end{document}

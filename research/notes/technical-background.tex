@@ -1,7 +1,7 @@
 %======================================================================
-%  Thesis background notes: LLM inference on HBM-equipped CPUs
-%  Build from this directory with:
-%      tectonic --keep-logs --keep-intermediates --reruns 1 notes.tex
+%  Technical background notes: LLM inference on HBM-equipped CPUs
+%  Build from the repository root with:
+%      inv notes
 %======================================================================
 \documentclass[11pt,a4paper]{article}
 
@@ -87,20 +87,20 @@ background and methodology chapters of the thesis.
 
 \clearpage
 \part{Experimental platform}
-\input{chapters/01-sd650-v3-hardware.tex}
-\input{chapters/02-cresco8-cluster.tex}
+\input{sections/01-sd650-v3-hardware.tex}
+\input{sections/02-cresco8-cluster.tex}
 
 \clearpage
 \part{Workload model and research evidence}
-\input{chapters/03-paper-llm-inference-cpu.tex}
-\input{chapters/04-paper-aurora-hbm.tex}
+\input{sections/03-paper-llm-inference-cpu.tex}
+\input{sections/04-paper-aurora-hbm.tex}
 
 \clearpage
 \part{Experimental design}
-\input{chapters/05-thesis-methodology.tex}
+\input{sections/05-thesis-methodology.tex}
 
 \clearpage
 \bibliographystyle{plainnat}
-\bibliography{../../thesis/references}
+\bibliography{../../bibliography/references}
 
 \end{document}
