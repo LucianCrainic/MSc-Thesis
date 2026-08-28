@@ -1,0 +1,194 @@
+%======================================================================
+%  What a cluster is, and which part of one this thesis uses
+%======================================================================
+
+\section{Supercomputers, clusters and nodes}
+\label{sec:hpc-primer}
+
+\subsection{What makes a machine a supercomputer}
+
+A modern supercomputer is not a single very large computer.  It is a
+few hundred to a few thousand ordinary computers, wired together and
+managed as one facility.  Each of those computers, called a \textbf{node}, has its own
+processors, its own memory and its own operating system, and looks from
+the inside much like a well-specified server.  What turns
+a room full of nodes into a supercomputer is the three things bolted
+around them: a fast \textbf{interconnect} so that nodes can exchange
+data, a \textbf{parallel file system} they all see, and a
+\textbf{scheduler} that hands nodes out to users a job at a time.
+
+\figref{fig:workstation-vs-cluster} contrasts this with the machine on
+a desk.  The important difference is not size but \emph{addressability}.
+On a workstation, every core can read every byte of memory directly.  On
+a cluster that remains true \emph{within} a node and stops being true
+between nodes: to use another node's memory, a program has to send a
+message over the network and wait.  Crossing that boundary is roughly
+three orders of magnitude more expensive than a local memory access, and
+almost everything difficult about parallel programming follows from it.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  box/.style={draw=black!60, fill=neutralcol, rounded corners=2pt,
+              minimum width=2.5cm, minimum height=0.62cm, align=center,
+              font=\footnotesize},
+  nodebox/.style={draw=black!55, fill=white, rounded corners=2pt,
+                  minimum width=1.5cm, minimum height=1.15cm,
+                  align=center, font=\scriptsize},
+  svc/.style={draw=ddrcol!80!black, fill=ddrcol!10, rounded corners=2pt,
+              minimum width=2.3cm, minimum height=0.62cm, align=center,
+              font=\footnotesize},
+  lbl/.style={font=\footnotesize, align=center},
+  lnk/.style={-{Stealth}, thick, black!60}
+]
+  % workstation side
+  \node[font=\bfseries] at (-4.4,3.05) {A workstation};
+  \node[box] (wc) at (-4.4,2.25) {CPU cores};
+  \node[box, fill=hbmcol!14, draw=hbmcol!80!black] (wm) at (-4.4,1.35)
+    {memory};
+  \node[box] (wd) at (-4.4,0.45) {disk};
+  \draw[lnk] (wc) -- (wm);
+  \draw[lnk] (wm) -- (wd);
+  \node[lbl, text width=4.4cm, black!75] at (-4.4,-0.95)
+    {One operating system.\\\emph{Every core can address\\every byte
+     directly.}};
+
+  \draw[black!25, dashed] (-1.55,-1.95) -- (-1.55,3.3);
+
+  % cluster side
+  \node[font=\bfseries] at (4.3,3.05) {A cluster};
+  \node[svc] (login) at (1.35,2.25) {login node};
+  \node[svc] (sched) at (1.35,1.35) {scheduler};
+  \draw[lnk] (login) -- (sched);
+
+  \foreach \i/\x in {1/3.6, 2/5.1, 3/6.6} {
+    \node[nodebox] (n\i) at (\x,2.05)
+      {\textbf{node}\\{\tiny CPUs}\\{\tiny memory}};
+  }
+  \node[font=\scriptsize, black!60] at (7.75,2.05) {$\cdots$};
+
+  \draw[lnk] (sched) -- (2.85,2.05);
+  \draw[black!60, thick] (3.0,0.95) -- (7.9,0.95);
+  \foreach \x in {3.6,5.1,6.6} \draw[black!60, thick] (\x,1.47) -- (\x,0.95);
+  \node[lbl, black!70] at (5.45,0.62) {interconnect};
+
+  \node[svc, minimum width=4.9cm] (fs) at (5.45,-0.15)
+    {parallel file system};
+  \draw[black!60, thick] (5.45,0.95) -- (5.45,0.16);
+
+  \node[lbl, text width=6.6cm, black!75] at (4.9,-1.32)
+    {Many operating systems.\\\emph{A core addresses its own node's
+     memory directly;\\anything else is a message over the network.}};
+\end{tikzpicture}
+\caption{A workstation and a cluster, drawn to show where direct memory
+addressing stops.  The dashed line is the boundary this thesis works
+inside: all of the experiments run on \emph{one} node, so the
+interconnect and the scheduler are context rather than subject.
+Author's synthesis.}
+\label{fig:workstation-vs-cluster}
+\end{figure}
+
+\subsection{How a cluster is used}
+
+Access follows a fixed shape, and it is worth stating because it
+constrains the experimental method described in Part~III.  A user logs
+in to a \textbf{login node}, which is shared, modest, and meant for
+editing and compiling rather than for running anything.  Work is then
+submitted to a \textbf{batch scheduler}, which on CRESCO8 is Slurm, as
+a script that declares what it needs: how many nodes, how
+many cores, for how long, from which partition.  The scheduler queues
+the request, and when the resources free up it runs the script on the
+allocated nodes and returns the output.
+
+Two consequences matter here.  First, \emph{measurements are taken
+without an interactive session}, so anything the experiment needs to
+record must be written down by the job script at the time; there is no
+opportunity to inspect the machine afterwards.  Second, \emph{the
+allocation is not the whole machine}.  A job receives specific nodes
+from a specific partition, and the properties of those nodes, rather than
+the properties advertised for the cluster, are what a result depends
+on.  This is why \secref{sec:first-allocation} treats capturing a
+machine-readable system manifest as the first task of the first
+allocation rather than as housekeeping.
+
+\subsection{Why HPC hardware differs from a desktop}
+
+Nodes in a cluster are built for sustained throughput rather than for
+peak responsiveness, and the differences show up in exactly the places
+this thesis cares about.  They carry two or more processor sockets, so
+memory access time depends on which socket a thread runs on.  They
+carry many more memory channels than a desktop, because feeding fifty
+or a hundred cores takes considerably more bandwidth than feeding
+eight.  They are cooled aggressively, on CRESCO8 with water, so that high core
+counts can be sustained rather than briefly reached.  And
+increasingly they carry \emph{more than one kind of memory}, which is
+where this thesis begins.
+
+That last point is the reason a cluster appears in a study of language
+model inference at all.  The processor examined here, the Intel Xeon CPU
+Max~9480, is a mainstream server CPU with an unusual property: it has
+high-bandwidth memory in the package alongside ordinary DDR5, and both
+can be addressed by software.  Machines built from it are rare, and
+essentially all of them are supercomputers.  Studying the question
+therefore requires cluster access even though the question itself is
+about a single socket.
+
+\subsection{What this thesis actually uses}
+
+The funnel narrows quickly, and \tabref{tab:hpc-scope} states where it
+stops.  Of everything above, the experiments use one node from one
+partition, and the primary comparison uses one socket of that node.  The
+interconnect is never on the critical path.  The parallel file system
+matters only for storing model files.  The scheduler matters only
+because it decides which node is obtained and for how long.
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\caption{Which parts of the cluster this thesis depends on.  The
+narrowness is deliberate: every level that is excluded is a level whose
+variability cannot contaminate the memory-tier comparison.}
+\label{tab:hpc-scope}
+\begin{tabularx}{\textwidth}{@{}P{3.05cm}P{3.3cm}Y@{}}
+\toprule
+\headrow
+\textbf{Level} & \textbf{Role in this thesis} & \textbf{Why} \\
+\midrule
+Cluster
+& \textbf{Context only}
+& Provides access to a processor that is otherwise unobtainable, and
+  imposes the queue limits that shape the experiment matrix. \\
+\addlinespace[1pt]
+Interconnect
+& \textbf{Excluded}
+& All experiments are single-node, so network performance never enters
+  a reported measurement. \\
+\addlinespace[1pt]
+File system
+& \textbf{Support only}
+& Holds model files; excluded from every timing boundary. \\
+\addlinespace[1pt]
+Scheduler
+& \textbf{Method}
+& Determines which node is allocated, which is why the observed node
+  configuration, not the documented one, is what gets reported. \\
+\addlinespace[1pt]
+Node
+& \textbf{Secondary subject}
+& Two sockets joined by UPI; used for the topology questions, where
+  crossing between sockets is the effect being measured. \\
+\addlinespace[1pt]
+\textbf{Socket}
+& \textbf{Primary subject}
+& \emph{The unit on which the central comparison is defined.}  One set
+  of cores, one local HBM tier, one local DDR5 tier. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+With that scope fixed, the next two sections work inwards:
+\secref{sec:xeon-max-platform} describes the socket and the memory
+system that make the question askable, and \secref{sec:cresco8}
+describes the particular cluster on which it will be asked.

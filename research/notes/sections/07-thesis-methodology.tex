@@ -10,17 +10,20 @@
 The thesis should make a narrower claim than ``CPUs can run large
 language models''.  Its objective is to quantify when and why
 on-package HBM changes inference on a Xeon Max processor, using DDR5 on
-the same socket as the control.  This produces three primary research
-questions:
+the same socket as the control.  This produces the three primary
+research questions set out in \tabref{tab:research-questions}, each
+with a prediction registered in advance:
 
-\begin{table}[tbp]
+\begin{table}[htbp]
 \centering
 \small
+\tabsetup
 \caption{Primary research questions and predictions.  Predictions are
 registered expectations to test, not conclusions.}
 \label{tab:research-questions}
 \begin{tabularx}{\textwidth}{@{}lYY@{}}
 \toprule
+\headrow
  & \textbf{Question} & \textbf{Prediction} \\
 \midrule
 RQ1
@@ -51,7 +54,6 @@ validated.  Multi-node inference, GPU comparison and online serving are
 outside the minimum scope.  They should be added only if the single-node
 results create a specific need or hypothesis.
 
-\FloatBarrier
 
 \subsection{Evidence and the primary contrast}
 
@@ -77,9 +79,11 @@ as the tier.
 
 \subsection{Experimental sequence}
 
-The work should advance only after the preceding stage is stable.
+The work should advance \emph{only} after the preceding stage is
+stable, in the dependency order drawn in
+\figref{fig:experimental-sequence}.
 
-\begin{figure}[tbp]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small,
@@ -114,7 +118,7 @@ design.}
 
 \begin{description}
   \item[Stage 0: system manifest.] Record the items in
-  Table~\ref{tab:platform-record}, identify HBM and DDR NUMA nodes, and
+  \tabref{tab:platform-record}, identify HBM and DDR NUMA nodes, and
   verify whether Flat/Cache and Quadrant/SNC4 settings are available.
 
   \item[Stage 1: memory characterization.] Measure local and remote read,
@@ -139,17 +143,20 @@ design.}
 
 \subsection{Selecting factors without a Cartesian explosion}
 
-The experiment matrix should be chosen from hypotheses and pilot data,
-not by taking every combination of model, precision, length, batch,
-core count and topology.
+The experiment matrix should be chosen from \textbf{hypotheses and
+pilot data}, not by taking every combination of model, precision,
+length, batch, core count and topology.  \tabref{tab:experimental-factors} lists the
+factors that survive that test and states what each one is for.
 
-\begin{table}[tbp]
+\begin{table}[htbp]
 \centering
 \small
+\tabsetup
 \caption{Factors and the role of each in the experimental design.}
 \label{tab:experimental-factors}
 \begin{tabularx}{\textwidth}{@{}lYY@{}}
 \toprule
+\headrow
 \textbf{Factor} & \textbf{Primary levels} & \textbf{Purpose} \\
 \midrule
 Memory placement
@@ -279,13 +286,20 @@ node-level study.
 
 \subsection{Threats to validity}
 
-\begin{table}[tbp]
+\tabref{tab:validity} pairs each class of threat with the design
+feature that answers it.  The pairing matters more than the list: a
+threat with no corresponding response is one the study cannot claim to
+have addressed.
+
+\begin{table}[htbp]
 \centering
 \small
+\tabsetup
 \caption{Main validity threats and design responses.}
 \label{tab:validity}
 \begin{tabularx}{\textwidth}{@{}lYY@{}}
 \toprule
+\headrow
 \textbf{Validity} & \textbf{Threat} & \textbf{Response} \\
 \midrule
 Internal
@@ -316,7 +330,6 @@ Reproducibility
 \end{tabularx}
 \end{table}
 
-\FloatBarrier
 
 \subsection{When an implementation contribution is justified}
 

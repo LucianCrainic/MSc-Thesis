@@ -1,0 +1,420 @@
+%======================================================================
+%  Literature review: the state of the art
+%======================================================================
+
+\section{The state of the art}
+\label{sec:literature}
+
+Two bodies of work bear on this thesis, and they have grown up almost
+independently of each other.  One asks whether a general-purpose CPU can
+run a language model quickly enough to be worth using, and answers it by
+rewriting arithmetic: quantized weights, cheaper kernels, better use of
+the matrix units.  The other asks how much performance depends on
+\emph{where} data sits in a tiered memory system, and answers it with
+placement experiments, historically on HPC codes and more recently on
+the key--value cache of a transformer.  Each line is mature.  \textbf{Their intersection, on a CPU that
+actually has two memory tiers under software control, is close to
+empty}, and that emptiness is what this thesis is built on.
+
+\subsection{Scope of the review}
+
+The review covers three bodies of work, chosen because each constrains
+the study in a different way.  The first is the line of research that
+made CPU inference practical through quantization, kernel design and use
+of the matrix units.  It supplies the performance figures any result
+here will be read against.  The second is work on \emph{memory tiering},
+in high-performance computing where it is mature and in transformer
+inference where it is not, which supplies the mechanism this thesis
+tests.  The third is the smaller methodological literature on evaluating
+inference systems, which constrains how the measurements must be taken
+and reported.
+
+Two boundaries are worth stating.  Work on training, on distributed
+serving and on accelerator microarchitecture is excluded: it is a large
+literature, and none of it bears on a single-socket placement question.
+And a number of the works discussed below are preprints rather than
+refereed publications.  They are cited where they establish what the
+field is currently attempting, and their status is noted where a
+quantitative claim rests on them, since an unrefereed number is a weaker
+foundation than a refereed one.
+
+\secref{sec:related-work} then departs from this survey and reads four
+sources closely, on the grounds that they alone were measured on the
+processor family studied here.
+
+\subsection{Making the CPU a credible inference target}
+\label{sec:lit-arithmetic}
+
+CPU inference became a serious proposition when weight-only quantization
+was combined with kernels written for it.  Shen et al.\ paired an
+automatic INT4 flow with a purpose-built runtime and reported 20--80\,ms
+per generated token for 6--20\,B models on a single fourth-generation
+Xeon socket, within a percent of FP32 accuracy~\cite{shen2023efficientcpu}.
+The significance is less the latency than the demonstration that the
+gap to an accelerator was a software gap as much as a hardware one.
+
+In practice most CPU inference now happens through
+\lcpp{}~\cite{llamacpp2026}, the runtime adopted here, and the published
+measurements of it provide a useful calibration.  Malakhov benchmarks seven 4-bit GGUF
+models across three CPU environments, including a Xeon Platinum 8592+,
+reporting roughly 120 tokens/s for a 1\,B model, 45 for a 7\,B model and
+15 for a 24\,B model~\cite{malakhov2025medlocalgpt}.  That machine is
+the DDR-only sibling of the processor studied here, being the same
+generation with a comparable core count and no on-package HBM.  That
+makes it the closest thing in the literature to a published control for the comparison in
+\secref{sec:research-gap}.  Kurt supplies the orthogonal sweep,
+evaluating 3- to 8-bit K-quant and legacy GGUF formats on one model for
+accuracy, perplexity and CPU prefill and decode throughput together,
+which is the evidence needed to choose a quantization level on grounds
+other than habit~\cite{kurt2026quantization}.
+
+Alongside the runtimes sits a line of work on the kernels themselves,
+unified by the observation that a quantized matrix--vector product
+spends most of its time on operations the hardware is bad at.  Zhang et
+al.\ replace multiply--accumulate in attention with in-register SIMD
+lookups and roughly double the speed of a 4-bit LLaMA-7B at 16\,k
+context~\cite{zhang2024nomad}.  Wei et al.\ generalise the idea to the
+weight path, computing mixed-precision GEMM by table lookup with no
+dequantization step at all, and report up to 4$\times$ over \lcpp{}
+together with a 70\% reduction in energy~\cite{wei2025tmac}.  Zuo et
+al.\ push furthest, fusing eight sub-GEMVs of a ternary layer into a
+single AVX-512 loop of masked additions and subtractions, with no
+multiplications anywhere in the inner
+loop~\cite{zuo2026fairyfuse}.
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\caption{Arithmetic-side work on CPU inference.  Reported gains are
+against the baseline named in each paper and on that paper's hardware;
+they are not mutually comparable, and are listed to show the shape of
+the field rather than to rank it.}
+\label{tab:lit-arithmetic}
+\begin{tabularx}{\textwidth}{@{}P{2.5cm}P{3.1cm}YP{3.1cm}@{}}
+\toprule
+\headrow
+\textbf{Work} & \textbf{Platform} & \textbf{Lever} &
+\textbf{Baseline and gain} \\
+\midrule
+Shen et al.\ 2023~\cite{shen2023efficientcpu}
+& 4th-gen Xeon, one socket
+& INT4 weight-only quantization with a matched runtime
+& 20--80\,ms/token for 6--20\,B; \(\leq\)1\% accuracy loss vs FP32 \\
+\addlinespace[2pt]
+Zhang et al.\ 2024~\cite{zhang2024nomad}
+& x86 with SIMD registers
+& Attention by in-register lookup instead of multiply--add
+& \(\approx\)2$\times$ on 4-bit LLaMA-7B at 16\,k context \\
+\addlinespace[2pt]
+Wei et al.\ 2025~\cite{wei2025tmac}
+& Apple M2-Ultra, Raspberry Pi 5
+& Table-lookup mixed-precision GEMM, no dequantization
+& Up to 4$\times$ over \lcpp{}; 70\% less energy \\
+\addlinespace[2pt]
+Zuo et al.\ 2026~\cite{zuo2026fairyfuse}
+& Intel Xeon 8558P
+& Ternary weights, eight sub-GEMVs fused into one AVX-512 loop
+& 29.6$\times$ at kernel level; \textbf{1.24$\times$ end to end} over
+  \lcpp{} Q4\_K\_M \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Where the arithmetic-side lever runs out}
+\label{sec:lit-pivot}
+
+The last row of \tabref{tab:lit-arithmetic} is the most informative
+number in this section, and it is worth dwelling on.  Zuo et al.\ make
+their kernel almost thirty times faster and the model runs 1.24 times
+faster.  Nothing went wrong in their engineering: \emph{the arithmetic simply
+stopped being what the program was waiting for}.  Once a phase spends
+most of its time waiting for weights to arrive, removing instructions
+from that phase buys very little, and the marginal return on further
+kernel work collapses.
+
+This is the pivot on which the rest of the review turns.  A decade of
+effort has moved CPU inference from implausible to routine by making the
+work cheaper, and that effort has been successful enough to expose what
+lies underneath it.  The interesting question is no longer how few
+operations a token can be generated with, but how quickly the bytes
+those operations consume can be delivered, which is a question about the
+memory system and therefore about placement.
+\figref{fig:two-levers} sets the two lines of attack against each other
+and marks the point at which they stop being interchangeable.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  lever/.style={draw=black!65, fill=neutralcol, rounded corners=3pt,
+                minimum width=6.1cm, minimum height=1.0cm, align=center},
+  work/.style={font=\footnotesize, text width=5.9cm, align=center,
+               inner sep=2pt},
+  target/.style={draw=black!70, fill=white, rounded corners=3pt,
+                 minimum width=6.6cm, minimum height=1.15cm,
+                 align=center},
+  arr/.style={-{Stealth}, thick, black!60}
+]
+  \node[lever, fill=ddrcol!12, draw=ddrcol!80!black] (a) at (-3.6,2.6)
+    {\textbf{Reduce the work}\\[1pt]
+     \footnotesize fewer or cheaper operations per token};
+  \node[work, below=0.15cm of a, text=black!70]
+    {quantization~\cite{shen2023efficientcpu,kurt2026quantization},
+     lookup kernels~\cite{zhang2024nomad,wei2025tmac},
+     ternary fusion~\cite{zuo2026fairyfuse}};
+
+  \node[lever, fill=hbmcol!14, draw=hbmcol!80!black] (b) at (3.6,2.6)
+    {\textbf{Reduce the wait}\\[1pt]
+     \footnotesize fewer or faster bytes per token};
+  \node[work, below=0.15cm of b, text=black!70]
+    {tier placement~\cite{fang2025kvplacement,jang2026itme},
+     cache residency~\cite{zhang2026cacheresident},
+     bandwidth-aware mapping~\cite{lu2026thinfer}};
+
+  \node[target] (t) at (0,-0.75)
+    {\(T_{\mathrm{step}} \gtrsim
+       \max\!\left(\dfrac{F_{\mathrm{step}}}{P_{\mathrm{eff}}},\;
+                   \dfrac{D_{\mathrm{step}}}{B_{\mathrm{eff}}}\right)\)};
+
+  \draw[arr, ddrcol!80!black] (-3.6,1.35) -- (-1.4,-0.35);
+  \draw[arr, hbmcol!80!black] (3.6,1.35) -- (1.4,-0.35);
+
+  \node[font=\footnotesize, text width=11.4cm, align=center,
+        below=0.35cm of t, text=black!75]
+    {When the second term dominates, the left lever saturates: Zuo et
+     al.\ report 29.6$\times$ at the kernel and 1.24$\times$ end to
+     end~\cite{zuo2026fairyfuse}.  This thesis pulls the right lever on
+     hardware where both tiers are directly addressable.};
+\end{tikzpicture}
+\caption{The two ways of shortening a decode step, and the point at
+which they stop being interchangeable.  Author's synthesis; the
+lower-bound expression is the step model developed in
+\secref{sec:roofline}.}
+\label{fig:two-levers}
+\end{figure}
+
+
+\subsection{Moving the data instead}
+\label{sec:lit-placement}
+
+\subsubsection{What HPC already knows}
+
+Tiered main memory is not new, and the HPC community learned most of the
+relevant lessons on Knights Landing.  Peng et al.\ compared MCDRAM with
+DRAM across scientific and analytics workloads and found a split that
+has aged well: codes with regular access patterns gained up to
+3$\times$, while codes with irregular patterns were latency-bound and
+could run \emph{slower} in the high-bandwidth tier
+alone~\cite{peng2017hybridmemory}.  Their remedy, more hardware threads to keep enough requests in flight
+for the bandwidth to be reachable, is the same concurrency argument
+developed in \secref{sec:littles-law}, and it is the most direct published
+warning that a fast tier is not automatically a faster program.
+
+On the processor used here, Reguly provides the closest non-LLM
+reference point, reporting 2.0--4.3$\times$ over the previous generation
+on bandwidth-sensitive HPC proxies and, importantly, observing that for
+some codes the bottleneck moves from bandwidth to communication
+latency once bandwidth stops being scarce~\cite{reguly2023xeonmax}.  That
+observation is the reason this thesis does not expect an inference
+speedup equal to the STREAM ratio, and it sets the scale against which a
+smaller measured effect should be judged.
+
+\subsubsection{Tiering for inference}
+
+Applying the same idea to transformers is recent and, so far, mostly
+indirect.  Fang et al.\ give the problem its formal treatment, casting
+KV-cache placement across a fast and a slow tier as latency
+minimisation and deriving an upper bound of up to 5.87$\times$ over
+static placement~\cite{fang2025kvplacement}.  Three properties of that
+work matter here.  It is evaluated in a behavioural simulator rather
+than on hardware; it covers the decode stage only; and it fixes model
+weights in the fast tier by assumption, on the grounds that weights are
+read at every step, leaving KV entries as the only variable.  The last
+of these is the assumption a Xeon Max socket is able to break, because
+64\,GB of HBM, and only 16\,GB per domain under SNC4, is not comfortably
+larger than a quantized model of interest.
+
+Neighbouring systems work approaches the same architecture from other
+directions.  Jang et al.\ exploit the predictable access pattern of
+weights and prefix state to expand KV capacity across host DRAM,
+CXL-attached memory and NVMe, reporting a 35.7\% throughput
+improvement~\cite{jang2026itme}, and a companion design places a
+three-tier stack behind a CXL interface for multi-turn
+serving~\cite{jang2026hymcache}.  Most directly comparable to this
+thesis, Zhang et al.\ keep reusable weights resident in a GB-scale
+last-level cache on a multi-socket CPU, separating weight-centric
+operators from attention and KV management, and report 2.04--11.51$\times$
+on time per output token against \lcpp{} with equivalent
+resources~\cite{zhang2026cacheresident}.  Their argument is this thesis's argument with a different fast tier:
+\emph{SRAM instead of HBM, bought with a redesigned runtime rather than
+with placement}.
+
+\tabref{tab:lit-tiering} collects this work and makes the pattern
+visible.  At larger scale, Lu et al.\ build an inference framework for
+the MT-3000
+many-core processor of the Tianhe supercomputer, framing the problem
+explicitly as maximising locality under a bandwidth constraint and
+beating DeepSpeed on 2$\times$V100S by 62--73\% for a 7\,B
+model~\cite{lu2026thinfer}.  Chen et al.\ show that the CPU side of a
+hybrid deployment is itself the bottleneck, using AMX-specialised
+kernels and asynchronous scheduling to obtain 4.62--19.74$\times$
+prefill and 1.25--4.09$\times$ decode speedups on large
+MoE models~\cite{chen2025ktransformers}; He et al.\ establish that
+scaling CPU inference beyond one socket is ordinary
+practice~\cite{he2024distributedcpu}.  Taken together these say that
+CPU-side memory behaviour is worth improving even when a GPU is
+present.
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\caption{Placement and tiering work relevant to the questions in \secref{sec:research-gap}.  The
+final column is the one that matters: almost all inference-side evidence
+is simulated, accelerator-attached, or obtained by rebuilding the
+runtime.}
+\label{tab:lit-tiering}
+\begin{tabularx}{\textwidth}{@{}P{2.45cm}P{3.3cm}YP{2.7cm}@{}}
+\toprule
+\headrow
+\textbf{Work} & \textbf{Tiers} & \textbf{What is placed} &
+\textbf{Evidence} \\
+\midrule
+Peng et al.\ 2017~\cite{peng2017hybridmemory}
+& MCDRAM / DRAM, one socket
+& Whole application; regular vs irregular access compared
+& Measured, HPC codes \\
+\addlinespace[2pt]
+Reguly 2023~\cite{reguly2023xeonmax}
+& HBM2e / DDR5, Xeon Max
+& Whole application
+& Measured, HPC proxies \\
+\addlinespace[2pt]
+Fang et al.\ 2025~\cite{fang2025kvplacement}
+& GPU HBM3 / CPU LPDDR5X over NVLink-C2C
+& KV entries only; weights pinned in HBM by assumption
+& \textbf{Simulated}, decode only \\
+\addlinespace[2pt]
+Jang et al.\ 2026~\cite{jang2026itme}
+& Host DRAM / CXL / NVMe
+& Weights and prefix cache, by access predictability
+& Measured, capacity expansion \\
+\addlinespace[2pt]
+Zhang et al.\ 2026~\cite{zhang2026cacheresident}
+& LLC / DRAM, multi-socket CPU
+& Weights held cache-resident; KV scaled separately
+& Measured, \textbf{requires a redesigned runtime} \\
+\addlinespace[2pt]
+\textbf{This thesis}
+& \textbf{HBM2e / DDR5, one Xeon Max socket}
+& \textbf{Whole process first; then weights against KV state}
+& \textbf{Measured, unmodified runtime, residency verified} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+
+\subsection{Whether decode is bandwidth-bound, and why it might not be}
+\label{sec:lit-bandwidth}
+
+The claim that autoregressive decode is memory-bound is close to folklore
+now, and it is usually justified with a roofline argument.  Yuan et al.\
+supply the canonical version, building a survey of inference efficiency
+on an explicit roofline analysis and showing why low-batch decode sits
+far to the left of the ridge point~\cite{yuan2024roofline}.  Bi et al.\
+turn the same model into a benchmarking framework and add a detail this
+thesis needs: operational intensity is not a fixed property of a model
+but moves with sequence length and depth~\cite{bi2026rooflinebench},
+which is precisely the mechanism behind the capacity sweep in
+\secref{sec:working-set}.
+
+What the folklore leaves out is that being memory-bound and being
+bandwidth-limited are different conditions, and only the second is cured
+by a faster tier.  Chen reports a cross-GPU study of batch-1 decode in
+which faster memory conspicuously fails to deliver proportional latency
+gains: an L4 reaches 81\% of its peak bandwidth while an H100 reaches
+27\%, and launch overhead and kernel choice matter more than the
+bandwidth on the specification sheet~\cite{chen2026memorybound}.  The
+work is GPU-side, so it transfers as a mechanism rather than as a
+comparable measurement, but the mechanism is exactly the one that would
+produce a disappointing HBM result here, and it is the strongest
+published reason to state \(H_{1b}\), that the observed ratio will fall
+short of the STREAM ratio, as a hypothesis rather than as a concession.
+
+Arif et al.\ add a third regime.  Studying models from 8\,B to 671\,B on
+GPU clusters, they describe reasoning-heavy workloads as
+\emph{capacity-bound} rather than compute- or bandwidth-bound, and
+identify KV-cache fragmentation as a mechanism that throttles
+throughput before any bandwidth ceiling is
+reached~\cite{arif2026inferencescaling}.  For this thesis that is both a
+vocabulary and a warning: the transition
+\secref{sec:research-gap} sets out to locate could be produced by
+fragmentation rather than by tier capacity, and the two have to be told
+apart.
+
+\subsection{How the field measures, and how it gets it wrong}
+\label{sec:lit-method}
+
+A memory-placement result is a comparison, and comparisons of inference
+systems are easy to draw badly.  Agrawal et al.\ catalogue the failure
+modes across three axes: baselines that conflate engineering effort with
+algorithmic novelty, workloads that do not resemble anything deployed,
+and normalised metrics that conceal generation stalls.  They also supply
+a checklist for avoiding them~\cite{agrawal2025evaluating}.
+Their argument is the reason the comparison at the centre of this thesis
+holds the build, thread count, model, quantization and prompt fixed and
+varies only the memory tier, and the reason inter-token latency will be
+reported as a distribution rather than as a mean.
+
+Two further papers shape the protocol.  Salaria et al.\ propose metrics
+for the cost of benchmarking itself and show that a well-chosen subset
+of a sweep can retain most of its information.  Reducing generation
+length from 1024 to 128 tokens preserved 96.6\% of the accuracy of the
+full measurement at 2.7$\times$ less cost~\cite{salaria2025metametrics}.
+On a shared allocation with a 24-hour limit that is not a convenience
+but a design constraint, and it gives a defensible basis for a reduced
+factor matrix instead of an arbitrary one.  Stuhlmann et al.\ report
+latency, throughput, energy and startup time side by side across
+engines and quantizations and conclude that no configuration wins
+everywhere~\cite{stuhlmann2025bench360}; their results are GPU-side, but
+the reporting structure is the right template for a results chapter
+whose honest conclusion will also be conditional.
+
+For placing CPU inference in a wider hardware context without expanding
+the scope of the experiments, Li et al.\ provide a cross-platform survey
+covering CPU, GPU, FPGA, ASIC and processing-in-memory designs, with
+tokens per second and tokens per joule at small batch
+sizes~\cite{li2024hardwareperspective}.
+
+\subsection{Where this thesis sits}
+\label{sec:lit-position}
+
+Reading the two lines of work together produces a fairly sharp picture.
+The arithmetic-side line has largely done its job and is now limited by
+data movement.  The memory-side line has strong measured results in HPC,
+where the object being placed is an array, and much weaker measured
+results in inference, where the object being placed is a weight tensor
+or a KV cache.  The inference-side tiering evidence is dominated by
+simulation~\cite{fang2025kvplacement}, by accelerator-attached
+hierarchies reached over an interconnect~\cite{jang2026itme,jang2026hymcache},
+or by results that required rebuilding the runtime around a different
+fast tier~\cite{zhang2026cacheresident}.
+
+A Xeon Max socket is unusual in that it removes all three of those
+qualifications at once.  Both tiers are directly load/store addressable
+by the same cores, so placement is a page policy rather than a transfer;
+the runtime does not have to be modified for the primary comparison; and
+the fast tier is small enough relative to a quantized model that the
+weights-fit assumption underlying the published formulation can be made
+to fail on purpose.  What is missing from the literature, and what
+\secref{sec:research-gap} sets out to supply, is the corresponding
+measurement: a phase-resolved comparison of verified local-HBM and
+local-DDR placement for quantized \lcpp{} inference, with page residency
+and achieved bandwidth reported, on hardware rather than in a model.
+
+Whether that measurement is the first of its kind is not a claim this
+review makes.  The search described above was not systematic enough to
+support it, and the more useful framing is in any case comparative: the
+prediction exists, the bound has been derived, and what has not been
+done is to hold it against a real machine.

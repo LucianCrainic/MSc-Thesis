@@ -10,17 +10,20 @@
 CRESCO8 is the current CRESCO system at the ENEA research centre in
 Portici.  It entered service in 2025 and is connected by a 200\,Gb/s
 Mellanox NDR fabric~\cite{cresco8doc,eneapress}.  The operational user
-page distinguishes three compute-node classes:
+page distinguishes the three compute-node classes listed in
+\tabref{tab:cresco8-node-classes}:
 
-\begin{table}[tbp]
+\begin{table}[htbp]
 \centering
 \small
+\tabsetup
 \caption{CRESCO8 node classes documented by ENEAGRID.  Counts describe a
 dated operational document, not a permanent scheduler inventory
 ~\cite{cresco8doc}.}
 \label{tab:cresco8-node-classes}
 \begin{tabularx}{\textwidth}{@{}lcccY@{}}
 \toprule
+\headrow
 \textbf{Class} & \textbf{Nodes} & \textbf{CPU cores/node}
  & \textbf{Memory/node} & \textbf{Processor or accelerator} \\
 \midrule
@@ -41,13 +44,12 @@ GPU
 The same page calls this a 793-node system, although the listed classes
 sum to 792 and its reported core total is consistent with the 792-node
 breakdown.  Earlier commissioning material gives yet another snapshot
-~\cite{eneacresco8slides}.  This inconsistency is operational rather
-than scientific: every experiment should retain dated
+~\cite{eneacresco8slides}.  This inconsistency is operational rather than scientific, and the
+response is procedural: every experiment retains dated
 \texttt{sinfo -N} and \texttt{scontrol show node} output, and the thesis
-should report the observed inventory rather than silently reconcile
+\textbf{reports the observed inventory} rather than silently reconciling
 historical documents.
 
-\FloatBarrier
 
 \subsection{Why the HBM partition supports a clean comparison}
 
@@ -101,6 +103,46 @@ modules listed on the web page are useful starting points, but an
 experiment must record the modules and linked libraries actually loaded
 on the run date.
 
+\subsection{Why this platform, and what it costs}
+\label{sec:why-cresco8}
+
+Machines that expose HBM and DDR as separately addressable tiers on a
+general-purpose CPU are not common, and the ones that exist are mostly
+not reachable.  Aurora is the largest Xeon Max deployment and the source
+of most of the published measurement literature on this
+processor~\cite{ibeid2025aurora,goto2026aurorahpl}, but access to it is
+not something a thesis can assume.  Fifteen nodes at ENEA are a small
+resource by comparison, and for the question in
+\secref{sec:research-gap} that hardly matters: the primary
+comparison is defined on a single socket, and a single socket is what
+the argument needs.  The scarce commodity here is \emph{not nodes but the processor
+itself}.
+
+The scarcity does shape the experimental design, though, and it is
+better to admit that in the method than to discover it halfway through.
+Fourteen nodes in \texttt{cresco8\_hbm} are shared with the rest of the
+centre, the queue limit is 24 hours, and the debug partition offers two
+nodes for an hour.  A full Cartesian sweep over model, quantization,
+prompt length, generation length, batch size, thread count, memory tier
+and clustering mode does not fit in that budget and would not be worth
+running if it did.  Salaria et al.\ give the principled response:
+measure the cost of the benchmark alongside its result, and choose a
+subset of the space that preserves most of its information.  Their
+example reduces generation length from 1024 to 128 tokens and retains
+96.6\% of the accuracy at 2.7$\times$ less
+cost~\cite{salaria2025metametrics}.  \secref{sec:inference-model}
+supplies the other half of the argument, since the model predicts which
+factors move the outcome and which merely enlarge the table.
+
+One further consequence deserves stating early.  Because HBM nodes are
+shared and the memory mode is a firmware setting fixed at boot, the mode
+available on the allocated nodes is a constraint rather than a variable.
+If the nodes are found in Cache mode and the administrators cannot
+provide Flat mode, the primary comparison in this thesis is not
+possible as specified, and the design has to change rather than the
+claim.  Establishing the active mode is therefore the first task of the
+first allocation, and not a detail to be confirmed later.
+
 \subsection{First allocation: capture facts before benchmarking}
 \label{sec:first-allocation}
 
@@ -136,16 +178,42 @@ findmnt -t lustre 2>/dev/null || true
 module list 2>&1 || true
 \end{lstlisting}
 
+\figref{fig:cresco8-lstopo} is what the topology half of that manifest
+actually looks like, captured from a CRESCO8 node.  It is worth reading
+once, because it shows the difference between a specification and an
+observation.  The two processor packages appear with their own memory,
+their caches and the devices attached to each, and the numbers on the
+links are relative access costs.  Note that this particular node is from
+the general CPU partition rather than the HBM partition: it reports two
+memory nodes of roughly 250\,GB each and no separate high-bandwidth
+tier.  On a Max~9480 node running in Flat mode, the same command should
+additionally report memory-only NUMA nodes carrying the HBM, and
+confirming that is the first thing \secref{sec:hbm-modes} requires of
+the first allocation.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{cresco8-cpu-node-diagram.png}
+\caption{Topology of a CRESCO8 compute node as reported by
+\texttt{lstopo}, captured on \texttt{cresco8x001.portici.enea.it}.  Two
+packages, 64 cores each, with their own memory and network devices.  The
+absence of memory-only NUMA nodes identifies this as a node of the
+general CPU partition; an HBM node in Flat mode would show them.}
+\label{fig:cresco8-lstopo}
+\end{figure}
+
 The manifest should be extended, subject to permissions, with the
 following evidence:
 
-\begin{table}[tbp]
+\begin{table}[htbp]
 \centering
 \small
+\tabsetup
 \caption{Minimum platform record for an inference result.}
 \label{tab:platform-record}
 \begin{tabularx}{\textwidth}{@{}lY@{}}
 \toprule
+\headrow
 \textbf{Category} & \textbf{Record} \\
 \midrule
 Identity
@@ -171,7 +239,7 @@ Telemetry
 \end{table}
 
 This separation between documented configuration and observed
-configuration is important.  Vendor documents establish what the
-platform can support, and ENEAGRID describes a dated cluster state.
-Only the archived manifest establishes the conditions under which a
-reported result was obtained.
+configuration is important.  Vendor documents establish what the platform \emph{can} support, and
+ENEAGRID describes a dated cluster state.  \textbf{Only the archived
+manifest establishes the conditions under which a reported result was
+actually obtained.}

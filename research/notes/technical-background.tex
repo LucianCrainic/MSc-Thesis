@@ -12,8 +12,10 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{graphicx}
+\graphicspath{{figures/}}
 \usepackage{booktabs}
 \usepackage{tabularx}
+\usepackage{xltabular}
 \usepackage{array}
 \usepackage{xcolor}
 \usepackage{enumitem}
@@ -26,21 +28,73 @@
 \usepackage{listings}
 \usepackage{xurl}
 \usepackage[numbers,sort&compress]{natbib}
-\usepackage[colorlinks=true, linkcolor=accent, urlcolor=accent,
-            citecolor=accent]{hyperref}
+\usepackage{colortbl}
+\usepackage[colorlinks=true, linkcolor=seccol, urlcolor=accent,
+            citecolor=citecol]{hyperref}
 
 \definecolor{accent}{RGB}{128,0,32}
 \definecolor{hbmcol}{RGB}{213,125,28}
 \definecolor{ddrcol}{RGB}{55,105,165}
 \definecolor{neutralcol}{RGB}{235,238,242}
 
+%  One colour per class of cross-reference, so a reader can tell at a
+%  glance whether a link points to a source, a figure, a table or an
+%  equation.
+\definecolor{citecol}{RGB}{128,0,32}   % sources
+\definecolor{figcol}{RGB}{27,102,74}   % figures
+\definecolor{tabcol}{RGB}{35,82,145}   % tables
+\definecolor{eqcol}{RGB}{112,54,132}   % equations
+\definecolor{seccol}{RGB}{85,85,95}    % sections
+\definecolor{tabhead}{RGB}{236,239,244}
+\definecolor{tabband}{RGB}{248,249,251}
+
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
 \setlist[itemize]{leftmargin=*, itemsep=2pt, topsep=4pt}
 \setlist[enumerate]{leftmargin=*, itemsep=2pt, topsep=4pt}
 \captionsetup{font=small, labelfont=bf}
+\captionsetup[figure]{labelfont={bf,color=figcol}}
+\captionsetup[table]{labelfont={bf,color=tabcol}}
 \setlength{\emergencystretch}{2em}
 \widowpenalty=10000
 \clubpenalty=10000
+
+%  Float placement.  The defaults are far too willing to push a float
+%  onto a page of its own and stretch the surrounding text to fill the
+%  gap; these let floats sit where they are written.
+\raggedbottom
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.7}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.75}
+\setlength{\textfloatsep}{14pt plus 3pt minus 3pt}
+\setlength{\intextsep}{13pt plus 3pt minus 3pt}
+
+%  Cross-reference commands.  Each prints its own kind in its own
+%  colour; \ref* keeps the link from nesting.
+\newcommand{\figref}[1]{\hyperref[#1]{\textcolor{figcol}{Figure~\ref*{#1}}}}
+\newcommand{\tabref}[1]{\hyperref[#1]{\textcolor{tabcol}{Table~\ref*{#1}}}}
+\newcommand{\eqnref}[1]{\hyperref[#1]{\textcolor{eqcol}{Equation~\ref*{#1}}}}
+\newcommand{\secref}[1]{\hyperref[#1]{\textcolor{seccol}{Section~\ref*{#1}}}}
+
+%  A caption for a displayed equation, styled like a figure caption so
+%  that equations can be referred to by name in the text.
+\newcommand{\eqcaption}[1]{%
+  \par\vspace{-2pt}%
+  \begingroup
+    \small
+    \setlength{\baselineskip}{12.5pt}%
+    \noindent\textcolor{eqcol}{\textbf{Equation~\theequation:}}~#1\par
+  \endgroup
+  \vspace{9pt}}
+
+%  Table furniture: a tinted header row and a little more breathing
+%  room between rows.
+\newcommand{\headrow}{\rowcolor{tabhead}}
+\newcommand{\tabsetup}{\renewcommand{\arraystretch}{1.22}}
 
 \lstdefinestyle{shell}{
   language=bash,
@@ -57,50 +111,88 @@
   belowskip=8pt
 }
 
+\newcommand{\lcpp}{\texttt{llama.cpp}}
+\newcommand{\ggml}{\texttt{ggml}}
+
 \title{\textbf{Technical Background and Experimental Rationale}\\[5pt]
        \Large LLM Inference on HBM-Equipped CPUs\\[3pt]
        \large The CRESCO8 Xeon Max Platform}
-\author{Lucian Crainic}
-\date{26 July 2026}
+\author{}
+\date{}
 
 \begin{document}
 \maketitle
 
+%  Bibliography ordering.  natbib's plainnat sorts alphabetically and
+%  mixes research literature with vendor documentation; unsrtnat instead
+%  follows the order in which entries are first cited, and the \nocite
+%  block below is read before any prose, so it fixes that order.  Research
+%  literature comes first, then the technical and institutional sources
+%  that are cited for facts rather than for findings.
+\nocite{agrawal2025evaluating, arif2026inferencescaling, bi2026rooflinebench,
+        chen2025ktransformers, chen2026memorybound, dongarra2026gpus,
+        fang2025kvplacement, goto2026aurorahpl, he2024distributedcpu,
+        ibeid2025aurora, jang2026hymcache, jang2026itme,
+        kurt2026quantization, li2024hardwareperspective,
+        lu2026thinfer, malakhov2025medlocalgpt, na2024llmcpu,
+        peng2017hybridmemory, reguly2023xeonmax, salaria2025metametrics,
+        shen2023efficientcpu, stuhlmann2025bench360,
+        wei2025tmac, williams2009roofline, yuan2024roofline,
+        zhang2024nomad, zhang2026cacheresident, zuo2026fairyfuse}
+\nocite{cresco8doc, eneacresco8slides, eneapress, intel9480, intelmax,
+        intelmaxtuning, llamacpp2026, lp1603}
+
 \begin{abstract}
 \noindent
-These notes establish the technical background for a thesis on large
-language model inference on CPUs with on-package High Bandwidth Memory
-(HBM).  They describe the Xeon Max memory hierarchy and the CRESCO8
-testbed, develop a performance model for prefill and autoregressive
-decode, and critically synthesize the relevant measurement literature.
-The central experimental comparison is local HBM versus local DDR5 on
-the same processor in Flat mode; comparisons with other processors are
-secondary because they change several variables at once.  Particular
-attention is given to working-set capacity, arithmetic intensity, NUMA
-placement, and the distinction between theoretical capability and
-measured behaviour.  The final part turns these concepts into a focused,
-reproducible experimental design that can be incorporated into the
-background and methodology chapters of the thesis.
+Quantized language-model inference on CPUs has become ordinary practice,
+and the work that made it so has been overwhelmingly arithmetic:
+fewer bits per weight, cheaper kernels, better use of the matrix units.
+That line of attack is now visibly saturating: a recent ternary kernel
+reports a thirty-fold improvement in isolation and a 1.24-fold
+improvement end to end, which suggests the binding constraint has
+moved to data movement.  The Intel Xeon CPU Max~9480 is
+an unusually direct place to test that suggestion, because it exposes
+on-package HBM2e and DDR5 as separately addressable memory tiers on one
+socket, so placement becomes a page policy rather than a data transfer.
+
+These notes assemble the background for a thesis built on that
+observation, using the fifteen HBM-equipped nodes of the CRESCO8 cluster
+at ENEA Portici.  They describe the Xeon Max memory hierarchy and the
+testbed, develop a step-level performance model for prefill and
+autoregressive decode, and review the two literatures the question sits
+between: CPU inference, which has concentrated on arithmetic, and
+memory tiering, which has strong measured results in HPC but has reached
+transformer inference mainly through simulation or through
+accelerator-attached hierarchies.  The central experimental comparison
+is local HBM against local DDR5 on the same socket in Flat mode, with
+prefill and sustained decode reported separately; comparisons across
+processors are secondary because they move several variables at once.
+Working-set capacity, arithmetic intensity, memory-level parallelism and
+verified page residency are treated throughout as the quantities that
+decide whether a bandwidth advantage becomes a performance advantage.
+The final part turns this into a reproducible experimental design.
 \end{abstract}
 
 \tableofcontents
 
 \clearpage
 \part{Experimental platform}
-\input{sections/01-sd650-v3-hardware.tex}
-\input{sections/02-cresco8-cluster.tex}
+\input{sections/01-hpc-and-clusters.tex}
+\input{sections/02-sd650-v3-hardware.tex}
+\input{sections/03-cresco8-cluster.tex}
 
 \clearpage
 \part{Workload model and research evidence}
-\input{sections/03-paper-llm-inference-cpu.tex}
-\input{sections/04-paper-aurora-hbm.tex}
+\input{sections/04-inference-model.tex}
+\input{sections/05-literature-review.tex}
+\input{sections/06-corpus-evidence.tex}
 
 \clearpage
 \part{Experimental design}
-\input{sections/05-thesis-methodology.tex}
+\input{sections/07-thesis-methodology.tex}
 
 \clearpage
-\bibliographystyle{plainnat}
+\bibliographystyle{unsrtnat}
 \bibliography{../../bibliography/references}
 
 \end{document}

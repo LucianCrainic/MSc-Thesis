@@ -1,30 +1,32 @@
 %======================================================================
-%  Critical literature review and research gap
+%  Close reading of the four Xeon Max sources, and the gap
 %======================================================================
 
-\section{Related work and the research gap}
+\section{Evidence measured on Xeon Max}
 \label{sec:related-work}
 
-\subsection{Corpus and source roles}
+\secref{sec:literature} surveyed a field; this section reads four
+papers closely.  The distinction is deliberate.  Almost none of the work
+discussed so far was measured on the processor studied here, and a
+result obtained on an H100, an M2-Ultra or a behavioural simulator
+\textbf{transfers as a mechanism, not as a number}.  Four sources do sit on or beside Xeon
+Max hardware, and they are consequently the ones whose numbers could
+plausibly be reproduced, contradicted or extended on CRESCO8.  It is
+therefore worth establishing exactly what each of them measured, under
+what conditions, and how far the result travels.
 
-The supplied file
-\texttt{Lessons from HPL and HPL-MxP on Aurora.pdf} now contains the
-intended Goto et al.\ paper, \emph{Sustaining Exascale Performance:
-Lessons from HPL and HPL-MxP on Aurora}, arXiv:2604.09517v1
-~\cite{goto2026aurorahpl}.  Its title, authors and deployment results
-were checked against the local twelve-page copy.
-
-The four sources answer different parts of the argument.  Na et
-al.\ provide the closest LLM workload precedent
-~\cite{na2024llmcpu}; Ibeid et al.\ isolate memory bandwidth, latency,
-mode and locality effects~\cite{ibeid2025aurora}; Goto et al.\ show the
-importance of explicit tier staging and resource mapping at production
-scale
-~\cite{goto2026aurorahpl}; and Dongarra et al.\ provide architectural
-motivation rather than a directly comparable baseline
-~\cite{dongarra2026gpus}.  Their transfer limits are addressed with the
-results below rather than treating the four works as equivalent
-evidence.
+They divide the work between them.  Na et al.\ supply the closest
+workload precedent, being the only one of the four to run a language
+model on this processor~\cite{na2024llmcpu}.  Ibeid et al.\ isolate the
+memory system itself, covering bandwidth, latency, mode and locality,
+without an LLM in sight~\cite{ibeid2025aurora}.  Goto et al.\ show what
+deliberate tier staging and resource mapping look like at production
+scale~\cite{goto2026aurorahpl}.  Dongarra et al.\ supply the
+architectural argument for why the question is worth asking at all, and
+are treated as motivation rather than as a
+baseline~\cite{dongarra2026gpus}.  Each carries a transfer limit, and
+those limits are stated alongside the results rather than collected in a
+caveat at the end.
 
 \subsection{Na et al.: the closest inference precedent}
 \label{sec:na-review}
@@ -37,16 +39,19 @@ socket; only the core-count sweep extends to 96 cores.  The CPU
 experiments use BF16 OPT and LLaMA-2 models, prompt length 128,
 generation length 32 and batch sizes from 1 to 32; a separate sweep
 increases the prompt length.  This is the closest platform and workload
-match in the corpus, but its results need careful qualification.
+match in the corpus, but its results need careful qualification, which
+\tabref{tab:na-findings} supplies claim by claim.
 
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
 \small
+\tabsetup
 \caption{Results from Na et al.\ and the interpretation used here
 ~\cite{na2024llmcpu}.}
 \label{tab:na-findings}
 \begin{tabularx}{\textwidth}{@{}YYY@{}}
 \toprule
+\headrow
 \textbf{Reported result} & \textbf{What it supports}
  & \textbf{What it does not establish} \\
 \midrule
@@ -82,7 +87,8 @@ oversized models.
 \end{tabularx}
 \end{table}
 
-The paper's GPU result is therefore best read as a data-movement result.
+The paper's GPU result is therefore best read as \textbf{a
+data-movement result}, not as a verdict on CPUs against GPUs.
 It compares direct CPU execution with a particular single-GPU
 offloading system.  It does not compare like-for-like production
 serving stacks.  The study also omits quantized weights, long
@@ -104,17 +110,21 @@ Ibeid et al.\ separate memory-system effects more clearly
 MPI microbenchmarks, followed by three HPC applications chosen to stress
 bandwidth, latency or capacity.  At the time of the study, production
 Aurora was configured in Quadrant+Flat mode; the full single-socket
-Flat/Cache and Quadrant/SNC4 matrix comes from Borealis.
+Flat/Cache and Quadrant/SNC4 matrix comes from Borealis, and the
+bandwidth figures this thesis reuses are those in
+\tabref{tab:ibeid-stream}.
 
-\begin{table}[tbp]
+\begin{table}[htbp]
 \centering
 \small
+\tabsetup
 \caption{Single-socket STREAM Triad bandwidth on the Borealis Xeon Max
 9470C testbed, in GB/s~\cite{ibeid2025aurora}.  The paper does not fully
 specify array size, first touch or cache-state controls.}
 \label{tab:ibeid-stream}
 \begin{tabular}{@{}lccc@{}}
 \toprule
+\headrow
  & \multicolumn{2}{c}{\textbf{Flat mode}} & \textbf{Cache mode} \\
 \cmidrule(lr){2-3}
 \textbf{Clustering} & \textbf{DDR5} & \textbf{HBM} & \textbf{DDR5+HBM cache} \\
@@ -154,7 +164,6 @@ change its result.  The paper uses page shuffling (``Fake NUMA'') to
 mitigate such conflicts, so behaviour near 64\,GB must not be read as a
 capacity-only effect.
 
-\FloatBarrier
 
 \subsection{The SNC4 result is software-dependent}
 \label{sec:snc4-synthesis}
@@ -163,8 +172,10 @@ The two measurement papers appear to disagree.  Ibeid et al.\ obtain
 their highest HBM bandwidth and several best application results with
 SNC4 and explicit per-domain placement.  Na et al.\ find that both SNC4
 configurations lose to Quadrant and report increased remote cache
-traffic.  Both observations can hold: SNC4 exposes locality, but
-software must align allocation and execution with that locality.
+traffic.  Both observations can hold, and the reconciliation is the useful part:
+\emph{SNC4 exposes locality, but it does not create it}.  Software must
+align allocation and execution with the domains, or pay for them
+without using them.
 
 This is a productive gap rather than a contradiction in the hardware.
 An MPI application can exploit SNC4 when ranks, pages and network
@@ -206,8 +217,9 @@ ablations; the campaign comparison is therefore strong operational
 evidence, not an isolated 9.8\% AMX measurement.
 
 These findings support two methodological choices for this thesis:
-resource mapping is part of the implementation, and a benchmark result
-is credible only with a complete mapping and run manifest.  The paper
+\textbf{resource mapping is part of the implementation}, and
+\textbf{a benchmark result is credible only with a complete mapping and
+run manifest}.  The paper
 does not measure CPU-only LLM inference or isolate CPU HBM, so its
 exascale throughput numbers should not appear as evidence for an HBM
 speedup on CRESCO8.
@@ -230,9 +242,9 @@ including prefill and energy implications, are partly projected from
 specifications.  Its trillion-parameter mixture-of-experts workload,
 256K context and low-bit formats are also far from the CRESCO8 baseline.
 Software maturity, energy and interconnect effects remain unresolved.
-The manuscript therefore motivates the research question and the need
-for runtime-aware placement, but it cannot substitute for measurements
-on the Max 9480.
+The manuscript therefore \emph{motivates} the research question and the
+need for runtime-aware placement, but it \emph{cannot substitute} for
+measurements on the Max 9480.
 
 \subsection{What the literature establishes}
 
@@ -256,24 +268,59 @@ Taken together, the sources support four bounded conclusions:
 \subsection{What remains unanswered}
 \label{sec:research-gap}
 
-No source in the reviewed corpus performs a controlled, same-socket
-comparison of local HBM and local DDR5 for modern quantized LLM
-inference while separating prefill and sustained decode.  The following
-questions remain unanswered by the reviewed corpus and require
-measurement on CRESCO8:
+Neither this close reading nor the wider survey in
+\secref{sec:literature} turned up a controlled, same-socket
+comparison of local HBM against local DDR5 for quantized LLM inference
+with prefill and sustained decode reported separately.  The three
+nearest pieces of work each miss one axis, and they miss different ones:
+Reguly has the processor but no language model~\cite{reguly2023xeonmax};
+Fang et al.\ have the placement question but answer it in a simulator, on
+an accelerator-attached hierarchy, with model weights pinned in the fast
+tier by assumption~\cite{fang2025kvplacement}; Zhang et al.\ have the
+processor family and the runtime but target the last-level cache, and
+had to rebuild the runtime to reach it~\cite{zhang2026cacheresident}.
+The gap is the intersection, and it is narrow enough to be a thesis.
 
-\begin{itemize}
-  \item how quantized weight and KV formats change the HBM benefit;
-  \item what occurs when the verified live set approaches and crosses a
-        64\,GB local HBM boundary;
-  \item whether topology-aware sharding or independent replicas can
-        reverse the reported SNC4 and two-socket regressions; and
-  \item whether a performance gain also reduces energy per token under a
-        clearly defined measurement boundary.
-\end{itemize}
+Four questions follow, in the order the evidence requires them to be
+asked:
 
-Answering the first three questions with a frozen runtime, raw data and
-uncertainty is a sufficient and coherent thesis contribution.  Energy
-is retained only if the measurement interface and boundary can be
-validated.  GPU comparison, online serving and multi-node inference are
-extensions rather than prerequisites.
+\begin{enumerate}
+  \item How do verified local-HBM and local-DDR placement affect prefill
+        and sustained decode on one Max 9480 socket, under otherwise
+        identical conditions?  Two things are worth predicting in
+        advance: that decode gains more than prefill, for the reason
+        \figref{fig:roofline} makes visual; and that the gain falls
+        short of the STREAM bandwidth ratio, because reaching HBM
+        bandwidth requires a concurrency the decode loop may not supply
+        (\secref{sec:littles-law}).
+
+  \item How does that benefit change as the verified live set approaches
+        and crosses usable local HBM, and which component of the live
+        set, whether weights, KV state or runtime workspace, causes the
+        transition?  Fragmentation is a competing explanation for any
+        cliff observed here and has to be excluded rather than assumed
+        away~\cite{arif2026inferencescaling}.
+
+  \item When more sockets or SNC domains are used, can explicit
+        execution and page placement avoid the regressions reported
+        under unmanaged configurations?  The corpus disagrees with
+        itself on this point (\secref{sec:snc4-synthesis}), which
+        is what makes it worth measuring.
+
+  \item When the live set exceeds HBM, does splitting weights and KV
+        state across the two tiers beat the best unmodified
+        whole-process policy?  This is where the CRESCO8 tier pair is
+        genuinely unusual: 64\,GB of HBM is not comfortably larger than
+        a quantized model, so the weights-fit assumption underlying the
+        published formulation can be made to fail deliberately, and the
+        configuration that formulation excludes, namely KV in HBM with
+        weights in DDR, becomes measurable.
+\end{enumerate}
+
+Answering the first three with a frozen runtime, raw data and honest
+uncertainty is a sufficient and coherent contribution on its own; the
+fourth is conditional on the first two producing both a benefit and a
+capacity constraint.  Energy per token is retained only if a measurement
+boundary can be defended.  GPU comparison, online serving and
+multi-node inference are extensions, not prerequisites, and each would
+introduce a class of confounds the primary question does not need.

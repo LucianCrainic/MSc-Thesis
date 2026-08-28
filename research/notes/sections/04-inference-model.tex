@@ -17,15 +17,18 @@ token per sequence at each iteration.  Each iteration requires the
 relevant weights and KV state, then appends the key and value for the new
 token.  Dense full-context attention reads the prior cached KV; sliding
 window or sparse attention can reduce that history.
+\figref{fig:prefill-decode} shows the two phases and the metric that
+characterises each.
 
-\begin{figure}[tbp]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small,
   io/.style={draw=black!50, fill=white, rounded corners=2pt,
              minimum width=2.2cm, minimum height=0.9cm, align=center},
   phase/.style={draw=black!65, fill=neutralcol, rounded corners=3pt,
-                minimum width=4.0cm, minimum height=1.55cm, align=center},
+                minimum width=4.0cm, minimum height=1.55cm,
+                text width=3.7cm, align=center},
   kv/.style={draw=hbmcol!85!black, fill=hbmcol!16, rounded corners=2pt,
              minimum width=4.0cm, minimum height=0.8cm, align=center},
   flow/.style={-{Stealth}, thick},
@@ -35,14 +38,15 @@ window or sparse attention can reduce that history.
   \node[phase] (prefill) at (-2.5,0)
     {\textbf{Prefill}\\process prompt in parallel\\build initial KV};
   \node[phase] (decode) at (2.6,0)
-    {\textbf{Decode loop}\\access weights and relevant KV\\
-     generate one token/sequence};
+    {\textbf{Decode loop}\\access weights and KV\\
+     generate one token\\per sequence};
   \node[io] (output) at (6.3,0) {token stream};
   \node[kv] (cache) at (2.6,-2.1)
     {KV cache: read required history, append new state};
 
   \draw[flow] (prompt) -- (prefill);
-  \draw[flow] (prefill) -- node[above, note]{first token} (decode);
+  \draw[flow] (prefill) -- (decode);
+  \node[note, black!75] at (0.05,1.45) {first token};
   \draw[flow] (decode) -- (output);
   \draw[flow, {Stealth}-{Stealth}] (decode) -- (cache);
   \draw[flow] (decode.45) .. controls +(0.8,0.8) and +(-0.8,0.8)
@@ -64,48 +68,58 @@ regime.  Author's synthesis.}
 This phase distinction is essential when evaluating HBM.  A single
 end-to-end throughput number can hide a faster decode phase behind a
 long prompt, or hide a prefill regression behind a long generation.
-TTFT and decode latency must therefore be reported separately.  Prefill
+\textbf{TTFT and decode latency must therefore be reported
+separately.}  Prefill
 usually offers matrix--matrix parallelism, whereas low-batch decode is
 closer to matrix--vector execution and repeatedly streams weights.
 Larger batches increase weight reuse and can move decode toward
 matrix-engine throughput; long contexts simultaneously increase KV
 traffic.
 
-\FloatBarrier
 
 \subsection{Working-set capacity}
 \label{sec:working-set}
 
 For a model with \(P\) parameters and a stored weight precision of
-\(q_w\) bits, the first-order weight footprint is
+\(q_w\) bits, \eqnref{eq:weights} gives the first-order weight
+footprint:
 
-\[
+\begin{equation}
+\label{eq:weights}
   M_W = P\frac{q_w}{8} + M_{\mathrm{format}},
-\]
+\end{equation}
+\eqcaption{Resident weight footprint.  The second term is the one that surprises people: it collects scales, zero-points, alignment and any prepacked copy the runtime builds, so a GGUF file of a given size does not occupy that size in memory.}
 
 where \(M_{\mathrm{format}}\) includes scales, zero-points, alignment,
 and any prepacked or duplicated representation created by the runtime.
-The model file size is not necessarily the resident weight footprint.
+The model file size is \emph{not} the resident weight footprint, and
+treating the two as interchangeable is the commonest way to misjudge
+whether a model fits a tier.
 
 For \(B\) concurrent sequences, cached length \(S\), \(L\) transformer
 layers, \(H_{\mathrm{KV}}\) KV heads, head dimension \(d_h\), and
-\(q_{\mathrm{KV}}\) bits per cached element, the KV footprint is
+\(q_{\mathrm{KV}}\) bits per cached element, \eqnref{eq:kv} gives the
+KV footprint:
 
-\[
+\begin{equation}
+\label{eq:kv}
   M_{\mathrm{KV}} =
   2 B S L H_{\mathrm{KV}} d_h \frac{q_{\mathrm{KV}}}{8}.
-\]
+\end{equation}
+\eqcaption{Key--value cache footprint.  It grows linearly in both context length \(S\) and batch \(B\), which is why long prompts and concurrency are the two ways to leave a memory tier.}
 
 The factor two accounts for keys and values.  Grouped-query and
 multi-query attention reduce the KV footprint because
 \(H_{\mathrm{KV}}\) is smaller than the number of query heads.  The
 complete resident set is
 
-\[
+\begin{equation}
+\label{eq:live}
   M_{\mathrm{live}} =
   M_W + M_{\mathrm{KV}} + M_{\mathrm{activations}}
   + M_{\mathrm{workspace}} + M_{\mathrm{runtime}}.
-\]
+\end{equation}
+\eqcaption{The live set.  This, not the model file, is the quantity that must be compared against usable local HBM.}
 
 This arithmetic identifies where capacity boundaries may occur, but the
 boundary must use the OS-exposed NUMA capacity on the allocated node and
@@ -126,20 +140,24 @@ precision must therefore be reported separately.
 \subsection{Arithmetic intensity and the Roofline bound}
 \label{sec:roofline}
 
-The Roofline model relates arithmetic intensity \(I=F/D\), measured in
-FLOP/byte, to compute throughput and memory bandwidth
-~\cite{williams2009roofline}:
+The Roofline model, stated as \eqnref{eq:roofline}, relates arithmetic
+intensity \(I=F/D\), measured in FLOP/byte, to compute throughput and
+memory bandwidth~\cite{williams2009roofline}:
 
-\[
+\begin{equation}
+\label{eq:roofline}
   P_{\mathrm{attainable}}
   \leq
   \min\!\left(P_{\mathrm{compute}},
               I B_{\mathrm{effective}}\right).
-\]
+\end{equation}
+\eqcaption{The Roofline bound.  Performance is capped by whichever runs out first, arithmetic or bandwidth; changing memory tier moves only the second term.}
 
-For one inference step, a corresponding lower-bound model is
+\eqnref{eq:step} is the corresponding lower-bound model for a single
+inference step:
 
-\[
+\begin{equation}
+\label{eq:step}
   T_{\mathrm{step}}
   \gtrsim
   \max\!\left(
@@ -147,20 +165,23 @@ For one inference step, a corresponding lower-bound model is
       \frac{D_{\mathrm{step}}}{B_{\mathrm{effective}}}
   \right)
   + T_{\mathrm{communication}} + T_{\mathrm{runtime}}.
-\]
+\end{equation}
+\eqcaption{Lower bound on one inference step.  The two trailing terms are the reason a measured speedup can fall well short of a bandwidth ratio even when the step really is memory-bound.}
 
 The effective quantities must be measured for the selected kernel,
 placement and core count.  Processor peak FLOP/s and theoretical pin
 bandwidth are ceilings, not values to substitute uncritically.
 
 For a dense linear layer during decode, if a stored weight is used once
-for each of \(B\) sequences in a batch, a useful first-order
-approximation is
+for each of \(B\) sequences in a batch, \eqnref{eq:intensity} is a
+useful first-order approximation:
 
-\[
+\begin{equation}
+\label{eq:intensity}
   I_{\mathrm{weights}} \approx \frac{2B}{b_w}
   \quad \text{FLOP/byte},
-\]
+\end{equation}
+\eqcaption{Arithmetic intensity of weight streaming in decode.  Batch size is in the numerator and bytes per weight in the denominator, so batching moves right along the Roofline and quantization moves right as well, both away from the region where a memory tier decides the outcome.}
 
 where \(b_w\) is the stored bytes per weight and a multiply--add is
 counted as two FLOPs.  The approximation assumes that each fetched dense
@@ -170,6 +191,91 @@ activation and runtime traffic are included.  Batching reuses weights
 and raises arithmetic intensity, which explains why HBM is expected to
 matter most for low-batch decode and why AMX can become more important
 as the matrix dimensions grow.
+
+\figref{fig:roofline} makes the consequence visible.  Placing both
+memory tiers on the same Roofline separates the region where a placement
+decision can matter from the region where it cannot: to the left of the
+ridge points the vertical distance between the two roofs is the full
+bandwidth ratio, while to the right both roofs lie above the compute
+ceiling, so no placement policy changes the bound.  Low-batch decode
+sits in the first region and prefill in the second.  That is the
+argument of this thesis expressed as a picture, and it is also why the
+two phases have to be measured separately rather than folded into a
+single throughput figure.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\small, x=1.22cm, y=1.0cm,
+  roof/.style={very thick},
+  point/.style={circle, fill=black!80, inner sep=1.6pt},
+  lbl/.style={font=\footnotesize, align=center}
+]
+  \draw[->, black!70] (0,0) -- (9.35,0)
+    node[right, font=\scriptsize, align=center]
+      {FLOP/\\byte};
+  \draw[->, black!70] (0,0) -- (0,4.05)
+    node[above, font=\footnotesize] {attainable GFLOP/s};
+
+  \foreach \X/\lab in {0/0.5, 0.818/1, 2.455/4, 4.091/16,
+                       5.727/64, 7.364/256, 9.0/1024}
+    \draw[black!55] (\X,0) -- (\X,-0.09) node[below, font=\scriptsize] {\lab};
+
+  \foreach \Y/\lab in {0/{10^2}, 1.08/{10^3}, 2.16/{10^4}, 3.24/{10^5}}
+    \draw[black!55] (0,\Y) -- (-0.10,\Y)
+      node[left, font=\scriptsize] {$\lab$};
+
+  \draw[black!12] (0,1.08) -- (9,1.08);
+  \draw[black!12] (0,2.16) -- (9,2.16);
+  \draw[black!12] (0,3.24) -- (9,3.24);
+
+  \fill[black!5] (1.6,0) rectangle (3.3,3.28);
+  \draw[black!30, dashed] (1.6,0) -- (1.6,3.28);
+  \draw[black!30, dashed] (3.3,0) -- (3.3,3.28);
+
+  \draw[dashed, thick, black!60] (0,3.28) -- (9,3.28);
+  \node[lbl, black!65, anchor=south east] at (9,3.36)
+    {AMX BF16 peak (specification ceiling)};
+
+  \draw[roof, hbmcol!85!black] (0,0.673) -- (6.56,3.28) -- (9,3.28);
+  \node[lbl, hbmcol!65!black, rotate=30, anchor=south west]
+    at (3.55,1.72) {HBM $\approx$ 840\,GB/s};
+
+  \draw[roof, ddrcol!85!black] (0,0.095) -- (8.02,3.28) -- (9,3.28);
+  \node[lbl, ddrcol!75!black, rotate=26, anchor=north west]
+    at (4.35,1.62) {DDR5 $\approx$ 245\,GB/s};
+
+  \node[point, hbmcol!70!black] at (2.455,1.65) {};
+  \node[point, ddrcol!75!black] at (2.455,1.07) {};
+  \draw[{Stealth}-{Stealth}, thick, black!75] (2.455,1.07) -- (2.455,1.65);
+  \node[font=\scriptsize, align=center, black!80, fill=white,
+        inner sep=1.5pt] at (2.455,0.58) {$\approx$3.4$\times$ apart};
+
+  \node[lbl, black!75] at (2.45,-0.80)
+    {batch-1 decode,\\4-bit weights};
+  \node[lbl, black!75] at (5.85,-0.80)
+    {batched decode,\\longer context};
+  \node[lbl, black!75] at (8.45,-0.80) {prefill\\(large GEMM)};
+
+  \node[point] at (5.727,3.28) {};
+  \node[point] at (8.30,3.28) {};
+  \draw[black!45, -{Stealth}] (5.85,-0.40) -- (5.75,3.15);
+  \draw[black!45, -{Stealth}] (8.45,-0.40) -- (8.32,3.15);
+
+\end{tikzpicture}
+\caption{Both memory tiers of one Xeon Max socket on a single Roofline.
+The bandwidth figures are full-socket Flat-mode STREAM Triad values
+measured on a Xeon Max 9470C~\cite{ibeid2025aurora} and are used only to
+set the slopes; the compute ceiling is a specification figure rather
+than a measurement, and neither has yet been established for CRESCO8.
+The shaded band marks the operating region this thesis investigates:
+left of the ridge points the vertical distance between the roofs is the
+full bandwidth ratio, while past them both roofs coincide with the
+compute ceiling and placement cannot move the bound.  Author's
+synthesis.}
+\label{fig:roofline}
+\end{figure}
+
 
 This model also clarifies why bandwidth alone is insufficient:
 
@@ -202,7 +308,7 @@ Several mechanisms can therefore produce the wrong placement:
 allocator first touch, worker migration, memory-mapped model pages,
 automatic NUMA balancing, and a runtime that creates prepacked copies
 after the initial allocation.  A command-line memory policy is evidence
-of intent, not evidence of residency.
+of intent, \textbf{not evidence of residency}.
 
 The relevant experimental object is consequently not ``the model in
 HBM'' but a verified mapping between:
@@ -221,29 +327,289 @@ be sharded across sockets or SNC domains; and selected objects can be
 placed in different memory tiers.  These designs answer different
 questions and should not be grouped under a generic ``two-socket run''.
 
-\subsection{Metrics and boundaries}
+\subsection{What we measure, and what each number means}
+\label{sec:metrics}
 
-For \(O\) generated tokens in a synchronous request,
+A run of the experiment produces three kinds of number, and the most
+common way to make a memory-placement study unreadable is to mix them.
+A \textbf{result} is a quantity the thesis is willing to defend as an
+outcome.  An \textbf{explanation} is a quantity that says \emph{why}
+the outcome came out that way, and carries no weight on its own.  A
+\textbf{validity check} is a quantity that decides whether the run
+counts at all.  The tables below keep them apart, and every reported
+comparison is expected to carry all three.
 
-\[
+\subsubsection{Numbers that are results}
+
+{\small\tabsetup
+\begin{xltabular}{\textwidth}{@{}P{2.6cm}P{4.1cm}Y@{}}
+\caption{Performance metrics: the quantities a claim may be made about.
+A metric whose movement cannot be interpreted is not worth collecting,
+so the right-hand column is the one to read first.}
+\label{tab:metrics-results}\\
+\toprule
+\headrow
+\textbf{Metric} & \textbf{What it is} & \textbf{Why it is here, and how to read it} \\
+\midrule
+\endfirsthead
+\multicolumn{3}{@{}l}{\footnotesize\itshape Table~\ref{tab:metrics-results}, continued}\\[2pt]
+\toprule
+\headrow
+\textbf{Metric} & \textbf{What it is} & \textbf{Why it is here, and how to read it} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+\endfoot
+\bottomrule
+\endlastfoot
+\textbf{TTFT}\newline{\footnotesize time to first token}
+& Elapsed time from an accepted request to the first emitted token.
+& The visible cost of \emph{prefill}, and the only phase metric a long
+  generation cannot hide.  \emph{Reading it:} scales with prompt
+  length.  Because prefill sits right of the ridge point in
+  \figref{fig:roofline}, a \textbf{large} tier effect here would be
+  surprising and would need explaining. \\
+\addlinespace[2pt]
+\textbf{ITL}\newline{\footnotesize inter-token latency}
+& The gap between consecutive emitted tokens, recorded per token.
+& The decode metric, and where \(H_{1a}\) predicts the HBM effect will
+  appear.  \emph{Reading it:} report the \textbf{distribution}
+  (median, p95, p99), never a bare mean.  A stable median with a heavy
+  tail points to allocation or scheduling interference, not to memory
+  bandwidth. \\
+\addlinespace[2pt]
+\textbf{TPOT}\newline{\footnotesize time per output token}
+& Mean decode time,
+  \((T_{\mathrm{E2E}} - T_{\mathrm{TTFT}})/(O-1)\).
+& A single summary of decode, and the metric the closest competing work
+  reports~\cite{zhang2026cacheresident}.  \emph{Reading it:} good for
+  comparison against published numbers, but it hides variance by
+  construction, so it never appears without the ITL distribution beside
+  it. \\
+\addlinespace[2pt]
+\textbf{Decode throughput}
+& Output tokens per second, per sequence and aggregated over the batch.
+& The form most readers expect and most CPU-inference papers publish.
+  \emph{Reading it:} the reciprocal of TPOT, carrying no information
+  TPOT does not; reported for comparability rather than for analysis. \\
+\addlinespace[2pt]
+\textbf{Prefill throughput}
+& Prompt tokens per second, \(S/T_{\mathrm{TTFT}}\).
+& Separates processing rate from prompt length, keeping runs with
+  different prompts comparable.  \emph{Reading it:} roughly flat in
+  prompt length once the prompt is long enough to fill the matrix
+  units; a fall-off indicates a capacity or kernel effect. \\
+\addlinespace[2pt]
+\textbf{Tier ratio}\newline{\footnotesize \(R_{\text{phase}}\)}
+& Per-phase ratio of matched DDR and HBM timings, \eqnref{eq:ratio}.
+& \textbf{The headline result of the thesis.}  Everything else exists
+  to make this number interpretable.  \emph{Reading it:}
+  \(R_{\text{decode}} > R_{\text{prefill}}\) supports \(H_{1a}\); a
+  \(R_{\text{decode}}\) below the STREAM bandwidth ratio supports
+  \(H_{1b}\).  A value near \(1.0\) is \emph{a real finding}, not a
+  failed experiment. \\
+\end{xltabular}}
+
+
+The tier ratio is defined on matched runs that differ in nothing but
+placement:
+
+\begin{equation}
+\label{eq:ratio}
+  R_{\text{phase}} =
+  \frac{T_{\text{phase}}^{\text{DDR}}}{T_{\text{phase}}^{\text{HBM}}},
+  \qquad \text{phase} \in \{\text{prefill}, \text{decode}\}.
+\end{equation}
+\eqcaption{Per-phase speedup from placing the live set in local HBM
+rather than local DDR5.  Values above one mean HBM is faster.  Stated
+per phase because a single end-to-end ratio would average the two
+regimes of \figref{fig:roofline} into a number that describes neither.}
+
+\subsubsection{Numbers that explain a result}
+
+\tabref{tab:metrics-explain} lists the measurements that give a
+result its mechanism.  The second row is the one to reach for first
+when an effect turns out smaller than expected.
+
+
+{\small\tabsetup
+\begin{xltabular}{\textwidth}{@{}P{2.6cm}P{4.1cm}Y@{}}
+\caption{Explanatory measurements.  None of these is a performance
+claim.  Their job is to say why the numbers in
+\tabref{tab:metrics-results} came out as they did, and, when the effect
+is small, to separate \emph{the tier does not matter} from \emph{the
+program never used the tier}.}
+\label{tab:metrics-explain}\\
+\toprule
+\headrow
+\textbf{Measurement} & \textbf{What it is} & \textbf{Why it is here, and how to read it} \\
+\midrule
+\endfirsthead
+\multicolumn{3}{@{}l}{\footnotesize\itshape Table~\ref{tab:metrics-explain}, continued}\\[2pt]
+\toprule
+\headrow
+\textbf{Measurement} & \textbf{What it is} & \textbf{Why it is here, and how to read it} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+\endfoot
+\bottomrule
+\endlastfoot
+\textbf{Achieved bandwidth}
+& Bytes per second actually moved to and from each tier during a phase,
+  taken from memory-controller counters.
+& \textbf{The most important explanatory number in the study};
+  without it a null result cannot be diagnosed at all.
+  \emph{Reading it:} compare against the STREAM figure measured on the
+  same node, never against a published one. \\
+\addlinespace[2pt]
+\textbf{Bandwidth utilisation}
+& Achieved bandwidth as a fraction of measured STREAM,
+  \eqnref{eq:utilisation}.
+& Turns the argument of \secref{sec:littles-law} into a measurement.
+  \emph{Reading it:} a high tier ratio with high utilisation means the
+  tier was the limit; a low tier ratio with \textbf{low} utilisation
+  means \emph{concurrency} was the limit and the tier never got a
+  chance. \\
+\addlinespace[2pt]
+\textbf{Remote traffic}
+& Bytes crossing UPI to the other socket.
+& The primary comparison is defined on one socket, so remote traffic
+  means it was not.  \emph{Reading it:} expected near zero; anything
+  else is a placement failure, and the run is re-examined rather than
+  reported. \\
+\addlinespace[2pt]
+\textbf{Peak resident set}
+& Maximum resident memory, decomposed into weights, KV state and
+  workspace per \eqnref{eq:live}.
+& Locates the capacity boundary the second research question is about.
+  \emph{Reading it:} compared against \emph{usable} local HBM on the
+  allocated node, which is smaller than the nominal 64\,GB. \\
+\addlinespace[2pt]
+\textbf{Frequency and power}
+& Sustained socket clock, package power and throttling state over the
+  measured interval.
+& Guards against reporting a thermal effect as a placement effect.
+  \emph{Reading it:} must be equivalent across the two placements being
+  compared; if it is not, the comparison is confounded. \\
+\end{xltabular}}
+
+
+\begin{equation}
+\label{eq:utilisation}
+  U_{\text{tier}} =
+  \frac{B_{\text{achieved}}}{B_{\text{STREAM}}} .
+\end{equation}
+\eqcaption{Bandwidth utilisation: the fraction of a tier's measured
+sustainable bandwidth that the workload actually drew.  This is the
+number that decides how a disappointing tier ratio should be read.  A
+decode phase running at \(U_{\mathrm{HBM}} \approx 0.3\) has not shown
+that HBM fails to help; it has shown that the workload asked HBM for
+nothing DDR5 could not also have supplied.}
+
+\subsubsection{Numbers that decide whether a run counts}
+
+The checks in \tabref{tab:metrics-validity} come first in the analysis,
+not last.  A run that fails any of them is discarded before its timings
+are looked at, because a placement study whose placement was not
+verified is not evidence of anything.
+
+{\small\tabsetup
+\begin{xltabular}{\textwidth}{@{}P{2.55cm}YP{4.3cm}@{}}
+\caption{Validity checks applied to every run before its results are
+considered.  These are pass/fail, not quantities to be reported as
+findings.}
+\label{tab:metrics-validity}\\
+\toprule
+\headrow
+\textbf{Check} & \textbf{What it establishes} &
+\textbf{Passing condition} \\
+\midrule
+\endfirsthead
+\multicolumn{3}{@{}l}{\footnotesize\itshape Table~\ref{tab:metrics-validity}, continued}\\[2pt]
+\toprule
+\headrow
+\textbf{Check} & \textbf{What it establishes} &
+\textbf{Passing condition} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
+\endfoot
+\bottomrule
+\endlastfoot
+\textbf{Page residency}
+& That the live set is where the command line said it should be.  A
+  memory policy states an intention; only a page count states an
+  outcome.
+& The overwhelming majority of the process's resident pages sit on the
+  intended NUMA node, with the threshold fixed before the campaign and
+  the shortfall reported. \\
+\addlinespace[1pt]
+\textbf{Thread binding}
+& That the cores executing the work are local to the memory holding it.
+& Observed CPU affinity matches the requested binding for every worker
+  thread. \\
+\addlinespace[1pt]
+\textbf{Output equivalence}
+& That placement changed the speed and nothing else.
+& For a fixed seed and identical inputs, the generated token sequence
+  is identical across tiers.  A divergence indicates a defect, not a
+  finding. \\
+\addlinespace[1pt]
+\textbf{Repetition dispersion}
+& That an observed difference is larger than the noise it sits in.
+& Coefficient of variation across repetitions small enough that the
+  tier effect exceeds it; repetitions, warm-up and discarded runs all
+  reported. \\
+\addlinespace[1pt]
+\textbf{Thermal state}
+& That the node was in a comparable operating condition for both arms.
+& No throttling events, and equivalent sustained frequency across the
+  compared placements. \\
+\end{xltabular}}
+
+
+\subsubsection{Where each timing starts and stops}
+
+The two phase metrics compose, as \eqnref{eq:e2e} shows, into the
+latency a user actually experiences over \(O\) generated tokens in one
+synchronous request:
+
+\begin{equation}
+\label{eq:e2e}
   T_{\mathrm{E2E}}
   =
   T_{\mathrm{TTFT}} +
   \sum_{j=2}^{O} T_{\mathrm{ITL},j}.
-\]
+\end{equation}
+\eqcaption{End-to-end request latency as the sum of its two phases.
+Written this way to make the risk explicit: a single end-to-end figure
+can absorb a decode improvement into a long prompt, or a prefill
+regression into a long generation, which is why this thesis reports the
+two terms rather than their sum.}
 
-At minimum, results should report TTFT, median and tail ITL, end-to-end
-latency, output tokens/s and requests/s.  The report must state whether
-tokenization, model loading, queueing and warm-up are included.  Static
-batch throughput and online serving goodput are different constructs:
-the latter additionally depends on arrivals, scheduling and declared
-latency objectives.
+A latency figure is meaningless without its boundary, and boundaries
+differ enough between published studies that comparing numbers across
+papers is often comparing definitions~\cite{agrawal2025evaluating}.
+This thesis fixes them as follows.  Model loading, tokenizer
+construction and the first warm-up request lie \emph{outside} every
+reported timing.  TTFT starts when the prompt has been tokenized and
+submitted, and stops when the first token is available.  ITL is
+measured between token emissions and excludes detokenization of the
+final output.  Every reported figure comes from a warmed process, and
+the number of discarded warm-up iterations is recorded with the run.
 
-Hardware counters are explanatory measurements rather than performance
-metrics.  HBM and DDR traffic, UPI traffic, memory-controller
-utilization, cache misses, achieved frequency and AMX-related counters
-can support a mechanism only when their collection overhead,
-multiplexing and scope are documented.
+Two further distinctions are worth stating because they are routinely
+elided.  Static batch throughput and online serving goodput are
+different constructs: the second depends on an arrival process, a
+scheduler and a declared latency objective, none of which are part of
+this study.  And hardware counters are explanatory measurements rather
+than performance metrics.  Their collection overhead, multiplexing
+behaviour and measurement scope are documented alongside the values, or
+the values are not used.
 
 \subsection{Predictions to test}
 

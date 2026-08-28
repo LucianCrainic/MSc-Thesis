@@ -13,18 +13,21 @@ independent dual-socket nodes, and six trays fit in a 6U DW612S
 enclosure~\cite{lp1603}.  This distinction matters when reporting
 quantities: the CRESCO8 allocation is a \emph{node}; memory locality is
 defined first at the \emph{socket}; and the scheduler may allocate
-individual cores within the node.
+individual cores within the node.  \tabref{tab:hardware-hierarchy} sets
+out the four levels and what each one is good for.
 
-\begin{table}[tbp]
+\begin{table}[htbp]
 \centering
 \small
+\tabsetup
 \caption{Hardware hierarchy and the properties relevant to this study.
 Product capability is separated from the installed CRESCO8
-configuration described in Section~\ref{sec:cresco8}
+configuration described in \secref{sec:cresco8}
 ~\cite{lp1603,cresco8doc}.}
 \label{tab:hardware-hierarchy}
 \begin{tabularx}{\textwidth}{@{}lYY@{}}
 \toprule
+\headrow
 \textbf{Level} & \textbf{Composition} & \textbf{Relevance} \\
 \midrule
 DW612S enclosure
@@ -55,7 +58,7 @@ provides 112 physical cores and 128\,GB of nominal HBM capacity.  The
 node also contains DDR5, but its installed capacity and channel
 population are properties of CRESCO8, not of the product family.
 
-\begin{figure}[tbp]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small,
@@ -99,26 +102,148 @@ Author's synthesis based on the platform and cluster documentation
 \label{fig:node-locality}
 \end{figure}
 
-\subsection{Compute capability: AMX does not remove the memory problem}
+
+\subsection{What the hardware looks like}
+\label{sec:hardware-photographs}
+
+Three photographs from the product documentation make
+\tabref{tab:hardware-hierarchy} concrete.  They are worth a moment,
+because the packaging explains several constraints that reappear later
+as experimental limitations.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.94\textwidth]{sd650v3-front-view.png}
+\caption{Front of one SD650~V3 tray.  The two servers are independent
+computers that happen to share a chassis: each has its own network
+ports, its own operator panel and its own management interface, and
+they share only power and water.  What is \emph{not} present is as
+informative as what is.  There is no video output, no removable media
+and no local console, because a node of this kind is never approached
+directly.  Reproduced from the Lenovo ThinkSystem SD650~V3 product
+guide~\cite{lp1603}.}
+\label{fig:sd650-front}
+\end{figure}
+
+\figref{fig:sd650-front} shows the tray from the front.  Two servers,
+side by side, each with a pair of 25\,GbE ports for the high-speed
+fabric and a 1\,GbE port for management.  The experiments in this thesis
+touch none of these interfaces: work arrives through the scheduler and
+results leave through the file system.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.94\textwidth]{sd650v3-internal-view.png}
+\caption{Inside the tray.  Each of the two servers carries two
+processors, and each processor is flanked by eight memory DIMMs.  The
+copper cold plates and the loop that joins them replace the fans
+entirely.  The high-bandwidth memory that this thesis is about is
+nowhere visible: it sits inside the processor package, beneath the cold
+plate, which is why its capacity is fixed and why it cannot be
+configured, replaced or upgraded.  Reproduced from the Lenovo
+ThinkSystem SD650~V3 product guide~\cite{lp1603}.}
+\label{fig:sd650-internal}
+\end{figure}
+
+\figref{fig:sd650-internal} is the more useful of the two.  The layout
+of one server, two processors with their own DIMMs on either side, is
+the physical form of the locality argument made throughout this section:
+a thread running on the left-hand processor reaches the DIMMs beside it
+quickly and the DIMMs on the right slowly, and no amount of software can
+change the distance.  The absence of fans is also visible, and it
+matters for measurement rather than for acoustics, since a water-cooled
+socket holds its clock under sustained load instead of ramping fans and
+throttling.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.80\textwidth]{dw612s-enclosure-nodes.png}
+\caption{Six trays in one 6U DW612S enclosure, giving twelve independent
+two-socket nodes.  A scheduler allocation yields one of these, not the
+enclosure and not the rack.  Reproduced from the Lenovo ThinkSystem
+SD650~V3 product guide~\cite{lp1603}.}
+\label{fig:dw612s-enclosure}
+\end{figure}
+
+\figref{fig:dw612s-enclosure} completes the picture: twelve nodes in one
+enclosure, and a few dozen enclosures in the machine room.  A job that
+asks for a node receives one of the trays in this photograph, with its
+neighbours in the enclosure running unrelated work.  That is the reason
+\secref{sec:first-allocation} insists on recording which node was
+obtained.
+
+\subsection{Compute capability, and why it is not the binding constraint}
 
 Xeon Max is a Sapphire Rapids processor with conventional x86 cores,
 AVX-512, and Intel Advanced Matrix Extensions (AMX).  AMX adds per-core
 tile registers and matrix-multiply instructions for BF16 and INT8
-operands~\cite{intelmax,na2024llmcpu}.  It can substantially accelerate
-matrix operations with suitable shapes and kernels, especially the
-large matrix--matrix products encountered during prompt processing.
-There is no native INT4 AMX dot-product instruction; low-bit runtimes
-must unpack, dequantize, or use specialized integer kernels.  Whether a
-model benefits from AMX therefore depends on the runtime, data format,
-packing scheme and matrix dimensions.
+operands~\cite{intelmax,na2024llmcpu}, and on well-shaped
+matrix--matrix products it is a large win, which is why prompt
+processing benefits from it and single-token generation largely does
+not.
 
-Peak instruction throughput is not an application result.  Small
+The detail that matters for a quantized workload is what AMX does not
+provide.  There is no native INT4 dot-product instruction, so a 4-bit
+GGUF model cannot be fed to the matrix engine in the format it is stored
+in.  \figref{fig:amx-path} shows the consequence: every weight must
+pass through an unpack and dequantize step before it reaches a tile, and
+that step sits precisely between the memory tier and the matrix unit.
+The arrangement has an awkward property for this thesis.  Lower-bit
+formats reduce the bytes moved, which is what makes them attractive on a
+bandwidth-limited machine, but they add work on the path from memory to
+the matrix engine, and they push the operand format further from
+anything the engine can consume directly.  Whether a given model
+benefits from AMX at all therefore depends on the runtime, the storage
+format, the packing scheme and the matrix dimensions, none of which are
+properties of the processor.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\small,
+  mem/.style={draw=hbmcol!85!black, fill=hbmcol!14, rounded corners=3pt,
+              minimum width=2.3cm, minimum height=1.5cm, align=center},
+  stage/.style={draw=black!65, fill=neutralcol, rounded corners=3pt,
+                minimum width=2.7cm, minimum height=1.5cm, align=center},
+  eng/.style={draw=black!70, fill=white, rounded corners=3pt,
+              minimum width=2.4cm, minimum height=1.5cm, align=center},
+  flow/.style={-{Stealth}, thick, black!70},
+  edgelbl/.style={font=\scriptsize, align=center, text=black!70}
+]
+  \node[mem]   (m) at (0,0)    {HBM2e\\\emph{or}\\DDR5};
+  \node[stage] (u) at (4.3,0)  {unpack \&\\dequantize\\{\footnotesize AVX-512}};
+  \node[stage] (t) at (8.6,0)  {tile registers\\{\footnotesize BF16 / INT8}};
+  \node[eng]   (x) at (12.1,0) {AMX\\\textsc{tmul}};
+
+  \draw[flow] (m) -- node[above=1pt, edgelbl] {4-bit}
+                    node[below=1pt, edgelbl] {packed} (u);
+  \draw[flow] (u) -- node[above=1pt, edgelbl] {widened} (t);
+  \draw[flow] (t) -- (x);
+
+  \draw[dashed, thick, black!45, -{Stealth}]
+    (m.north) .. controls +(2.4,1.6) and +(-2.8,1.6) .. (x.north);
+  \node[edgelbl, text=black!55, fill=white, inner sep=2pt] at (6.05,1.62)
+    {no native INT4 path};
+\end{tikzpicture}
+\caption{Path taken by a quantized weight from a memory tier to the
+matrix engine on Xeon Max.  The unpack stage is unavoidable for 4-bit
+formats and lies between the two things this thesis compares.  At batch
+one the right-hand operand is a vector, so the tile is largely empty and
+the engine runs far below its rated throughput; the step is paced
+instead by the arrival of weights from the left.  Author's synthesis
+from the Xeon Max product documentation and the AMX description in Na et
+al.~\cite{intelmax,na2024llmcpu}.}
+\label{fig:amx-path}
+\end{figure}
+
+\textbf{Peak instruction throughput is not an application result.}  Small
 matrices, batch-one matrix--vector operations, packing overhead and
-memory stalls can leave the matrix units underused.  Likewise, the
-advertised maximum turbo frequency is a single-core limit, not the
-frequency of a socket executing sustained AMX kernels.  Frequency,
-package power and throttling state must be observed during experiments
-rather than inferred from specification tables.
+memory stalls can all leave the matrix units idle, and the advertised
+maximum turbo frequency is a single-core limit rather than the frequency
+of a socket running sustained AMX kernels.  Frequency, package power and
+throttling state have to be observed during the experiments rather than
+read off a specification table.
+
 
 \subsection{The memory hierarchy}
 \label{sec:memory-hierarchy}
@@ -126,10 +251,11 @@ rather than inferred from specification tables.
 HBM and DDR5 trade different resources.  HBM provides much greater
 aggregate bandwidth and 64\,GB of nominal capacity per socket.  DDR5
 provides substantially more capacity and can have lower unloaded access
-latency.  HBM is therefore not simply ``faster memory'': it is most
-valuable when a workload issues enough concurrent requests to approach
-its bandwidth and when the bandwidth-critical working set is placed
-locally.
+latency.  HBM is therefore not simply ``faster memory''.  It is most valuable
+under two conditions that have to hold \emph{together}: the workload
+issues enough concurrent requests to approach its bandwidth, \emph{and}
+the bandwidth-critical working set is placed locally.  Either one alone
+is not enough.
 
 Published STREAM results illustrate both the advantage and the need for
 local measurement.  Na et al.\ report 588\,GB/s for HBM and
@@ -153,18 +279,118 @@ Three paths must be distinguished in every result:
         objects span several locality domains.
 \end{itemize}
 
-An apparently node-wide 128\,GB HBM allocation is consequently two
-64\,GB local tiers.  A workload uses the aggregate capacity and
+\figref{fig:node-locality} draws these three paths.  An apparently
+node-wide 128\,GB HBM allocation is consequently two 64\,GB local
+tiers.  A workload uses the aggregate capacity and
 bandwidth only if data and computation are balanced across sockets.
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\caption{Storage levels visible to one Max 9480 socket, ordered by the
+question that matters here: who decides what occupies them.  Only the
+last three rows are under software control, and only in Flat mode.
+Cache capacities follow the SKU specification and should be confirmed
+with \texttt{lscpu} on the allocated node~\cite{intel9480,lp1603}.}
+\label{tab:storage-levels}
+\begin{tabularx}{\textwidth}{@{}P{2.35cm}P{3.05cm}P{3.15cm}Y@{}}
+\toprule
+\headrow
+\textbf{Level} & \textbf{Capacity} & \textbf{Placement decided by} &
+\textbf{Why it matters here} \\
+\midrule
+L1 data & 48\,KB per core & Hardware & Too small to hold any part of a
+  weight tensor. \\
+L2 & 2\,MB per core & Hardware & Holds tiles and activations; invisible
+  to a placement policy. \\
+Last-level cache & 112.5\,MB, shared & Hardware replacement policy &
+  The tier Zhang et al.\ target by rebuilding the
+  runtime~\cite{zhang2026cacheresident}; not addressable directly. \\
+\addlinespace[2pt]
+HBM2e & 64\,GB, four stacks & \textbf{Software}, in Flat mode &
+  The bandwidth tier, and the object of this study. \\
+DDR5 & Eight channels; installed capacity is a CRESCO8 property &
+  \textbf{Software}, in Flat mode & The capacity tier and the control
+  condition. \\
+Remote memory & The other socket's tiers & \textbf{Software}, through
+  thread and page binding & Reached over UPI; a placement failure rather
+  than a design choice. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\tabref{tab:storage-levels} also locates this thesis against the
+closest competing work.
+Zhang et al.\ obtain large gains by keeping weights resident in the
+last-level cache~\cite{zhang2026cacheresident}, one row above the tier
+studied here, but that row is not addressable, so their result required
+rebuilding the runtime around it.  The HBM row can be
+addressed directly, which is what makes the comparison in this thesis
+possible without touching the runtime at all.
+
+\subsection{Bandwidth is only reachable with enough concurrency}
+\label{sec:littles-law}
+
+A bandwidth number describes what the memory system can deliver when it
+is kept busy, and nothing about whether a given program manages to keep
+it busy.  The relationship is Little's law: the number of bytes a
+program must have in flight to sustain a bandwidth \(B\) against a
+latency \(L\) is
+
+\begin{equation}
+\label{eq:little}
+  C = B \times L .
+\end{equation}
+\eqcaption{Little's law applied to a memory system.  It converts a bandwidth figure into a requirement on the program: this many bytes must be outstanding at every instant, or the bandwidth is unreachable no matter which tier holds the data.}
+
+Substituting the published Xeon Max figures into \eqnref{eq:little}
+makes the difference between the two tiers concrete.  For HBM at 840\,GB/s and 134.9\,ns, roughly
+113\,KB must be outstanding at all times, which is about 1{,}770 cache
+lines, or close to 32 lines per core across 56 cores.  For DDR5 at 245\,GB/s
+and 112.9\,ns the requirement is roughly 28\,KB, about 430 lines, or
+under 8 per core~\cite{ibeid2025aurora}.  The faster tier does not merely
+offer \emph{more} bandwidth; it demands roughly \textbf{four times the
+memory-level parallelism} before that bandwidth becomes reachable at
+all.
+
+That demand is not obviously satisfiable.  Thirty-two concurrent line
+fills per core is the same order of magnitude as the outstanding-miss
+resources a single core has available, so approaching HBM peak requires
+almost every one of them to stay occupied, helped by hardware
+prefetchers that work well on strided streams and poorly on dependent
+ones.  The exact resource counts for this microarchitecture must be
+confirmed rather than assumed, but the shape of the constraint does not
+depend on the precise number.
+
+This is the mechanism behind the most important negative result in the
+tiered-memory literature.  Peng et al.\ found that HPC codes with
+regular access patterns gained up to 3$\times$ from MCDRAM while codes
+with irregular, latency-bound patterns could run \emph{slower} in the
+high-bandwidth tier, and that adding hardware threads, which is to say adding concurrency,
+recovered much of the loss~\cite{peng2017hybridmemory}.  Low-batch autoregressive decode has
+exactly the awkward shape: the weight stream is regular and prefetchable,
+but the dependent chain through each layer limits how far ahead the core
+can run, and the attention path over a growing KV cache is less regular
+still.
+
+Two consequences follow for the experiments.  Thread count is not a
+nuisance parameter to be fixed at ``all cores'' but a first-class
+factor, because it directly sets available concurrency; and a
+disappointing HBM result must be diagnosed by measuring achieved
+bandwidth rather than reported as an absence of effect.  A run that
+reaches 250\,GB/s on HBM has \emph{not} shown that HBM does not help;
+it has shown that \textbf{the program never asked HBM for anything DDR5
+could not also have delivered}.
 
 \subsection{HBM memory modes}
 \label{sec:hbm-modes}
 
-Xeon Max supports three ways to expose HBM
-~\cite{lp1603,intelmaxtuning}.  The mode is selected in firmware and is
-normally fixed for the lifetime of a boot.
+Xeon Max supports three ways to expose HBM, shown side by side in
+\figref{fig:hbm-modes}~\cite{lp1603,intelmaxtuning}.  The mode is
+selected in firmware and is normally fixed for the lifetime of a boot.
 
-\begin{figure}[tbp]
+\begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
   font=\small,
@@ -266,6 +492,20 @@ temperature, package power and throttling state.  Product-guide claims
 about facility heat recovery or cooling savings are not evidence about
 inference performance.
 
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.82\textwidth]{dw612s-water-manifold.png}
+\caption{Rear of the enclosure.  Water is distributed to the trays
+through manifolds, and even the power supplies are water-cooled, so the
+enclosure has no air path at all.  For this thesis the consequence is
+narrow but useful: thermal conditions are set by facility water
+temperature rather than by neighbouring workloads, which removes one
+source of run-to-run variation.  Reproduced from the Lenovo ThinkSystem
+SD650~V3 product guide~\cite{lp1603}.}
+\label{fig:dw612s-manifold}
+\end{figure}
+
+\figref{fig:dw612s-manifold} shows how the water reaches the trays.
 The SD650~V3 includes XClarity management and a TI INA226-based
 power/energy meter with 100\,Hz sampling capability
 ~\cite{lp1603}.  This establishes a platform capability, not user
@@ -276,16 +516,29 @@ and permissions.
 
 \subsection{Consequences for the thesis}
 
-The hardware background yields four requirements for the experimental
-work:
+Five requirements follow from the hardware, and each of them exists
+because a specific thing can go wrong.
 
 \begin{enumerate}
-  \item identify the active memory and clustering modes from the
-        allocated node rather than from the product guide;
-  \item measure sustained local HBM and DDR5 behaviour before using a
-        Roofline or interpreting inference results;
-  \item bind both threads and pages, then verify page residency and
-        remote traffic; and
-  \item record frequency, thermal and power state so that a placement
-        effect is not confused with a change in operating conditions.
+  \item Establish the active memory and clustering modes from the
+        allocated node rather than from the product guide.  Flat mode is
+        a precondition for the primary comparison, not a default.
+  \item Measure sustained local HBM and DDR5 behaviour before drawing a
+        Roofline or interpreting any inference result.  The published
+        figures for this processor family differ by more than 15\%
+        between studies, which is too much to inherit.
+  \item Treat thread count as a factor rather than a constant.  It sets
+        the memory-level parallelism available to the run, and therefore
+        how much of the HBM bandwidth the workload can reach at all
+        (\secref{sec:littles-law}).
+  \item Bind threads and pages, then verify residency and remote traffic
+        rather than trusting the command line.  A memory policy records
+        an intention; only a page count records an outcome.
+  \item Record frequency, thermal and power state throughout, so that a
+        placement effect cannot be confused with a change in operating
+        conditions.
 \end{enumerate}
+
+The common thread is that this processor offers several ways to obtain a
+result that looks like a memory-tier effect and is not one.  Most of the
+methodological weight in Part~III goes on ruling those out.
