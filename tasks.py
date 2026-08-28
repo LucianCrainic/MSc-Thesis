@@ -31,7 +31,7 @@ def compile_document(c, source: Path) -> Path:
 
     BUILD.mkdir(exist_ok=True)
     c.run(
-        f"tectonic --keep-logs --reruns 1 "
+        f"tectonic --keep-logs --reruns 2 "
         f'--outdir "{BUILD}" "{source}"',
         pty=True,
     )
