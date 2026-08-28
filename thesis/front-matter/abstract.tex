@@ -1,3 +1,54 @@
+% Provisional abstract. The paragraph marked below is a placeholder until
+% the CRESCO8 measurements exist; everything else reflects the background
+% and methodology as they currently stand.
 \begin{abstract}
-    TODO
+    Running large language models on CPUs is no longer unusual, and the
+    work that made it ordinary has been overwhelmingly arithmetic: fewer
+    bits per weight, cheaper kernels, better use of the matrix units.
+    That line of attack is visibly saturating. A recent ternary-kernel
+    design reports a twenty-nine-fold improvement in isolation and a
+    1.24-fold improvement end to end, and the distance between those two
+    numbers is not an engineering failure but a statement about where the
+    time now goes. Once a generation step spends most of its duration
+    waiting for weights to arrive, removing instructions from it buys
+    very little, and the interesting question becomes where those weights
+    are kept.
+
+    This thesis takes that question to hardware that can answer it
+    directly. The Intel Xeon CPU Max~9480 exposes 64\,GB of on-package
+    HBM2e alongside conventional DDR5 as separately addressable memory
+    tiers on a single socket, so choosing between them is a page-placement
+    decision rather than a data transfer, and it requires no change to the
+    inference runtime. Using the HBM-equipped partition of the CRESCO8
+    cluster at ENEA Portici, the study compares verified local-HBM against
+    local-DDR5 placement for quantized inference under
+    \texttt{llama.cpp}, holding the build, model, quantization format,
+    thread count and prompt fixed and reporting prompt processing and
+    sustained token generation as separate measurements rather than as a
+    single throughput figure.
+
+    Two predictions are registered in advance. Token generation should
+    gain more from the faster tier than prompt processing, because its
+    low-batch matrix--vector work sits far to the left of the Roofline
+    ridge point where the two tiers' ceilings are furthest apart. The gain
+    should nonetheless fall short of the ratio between the tiers' STREAM
+    bandwidths, because sustaining HBM bandwidth requires roughly four
+    times the memory-level parallelism that DDR5 does, and a dependent
+    decode loop may not supply it. Both predictions can fail informatively:
+    a small effect accompanied by low achieved bandwidth would locate the
+    limit in concurrency rather than in the memory technology.
+
+    The background developed here situates the problem between two
+    literatures that have largely not met. CPU inference has concentrated
+    on arithmetic; memory tiering has strong measured results in
+    high-performance computing but has reached transformer inference
+    mainly through simulation, through accelerator-attached hierarchies
+    reached over an interconnect, or through designs that rebuilt the
+    runtime around a different fast tier. A Xeon Max socket removes all
+    three qualifications at once, which is what makes the measurement
+    worth taking.
+
+    % TODO: results and conclusions paragraph, after the CRESCO8
+    % measurement campaign. State the measured phase-resolved ratios,
+    % where the capacity boundary fell, and which hypothesis survived.
 \end{abstract}
