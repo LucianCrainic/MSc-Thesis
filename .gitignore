@@ -301,7 +301,14 @@ TSWLatexianTemp*
 #*Notes.bib
 .DS_Store
 
-output/
+# Build output (see tasks.py)
+build/
 
+# Generated PDFs are not tracked; reference papers are.
 *.pdf
-!docs/papers/*.pdf
+!bibliography/papers/*.pdf
+
+# Python tooling
+__pycache__/
+.venv/
+venv/

@@ -1,2 +1,6 @@
-# Third-party LaTeX thesis template files should not affect language statistics.
-thesis/sapthesis.bst linguist-vendored
+# Third-party LaTeX template files should not affect language statistics.
+thesis/sapthesis.cls    linguist-vendored
+thesis/sapthesis.bst    linguist-vendored
+thesis/sapthesis.layout linguist-vendored
+slides/beamerthemesintef.sty linguist-vendored
+slides/sintefcolor.sty       linguist-vendored
