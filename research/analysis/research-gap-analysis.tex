@@ -24,10 +24,18 @@
 \usepackage{listings}
 \usepackage{xurl}
 \usepackage[numbers,sort&compress]{natbib}
-\usepackage[colorlinks=true, linkcolor=accent, urlcolor=accent,
-            citecolor=accent]{hyperref}
+\usepackage{colortbl}
+\usepackage{xltabular}
+\usepackage[colorlinks=true, linkcolor=seccol, urlcolor=accent,
+            citecolor=citecol]{hyperref}
 
 \definecolor{accent}{RGB}{128,0,32}
+\definecolor{citecol}{RGB}{128,0,32}   % sources
+\definecolor{figcol}{RGB}{27,102,74}   % figures
+\definecolor{tabcol}{RGB}{35,82,145}   % tables
+\definecolor{eqcol}{RGB}{112,54,132}   % equations
+\definecolor{seccol}{RGB}{85,85,95}    % sections
+\definecolor{tabhead}{RGB}{236,239,244}
 \definecolor{hbmcol}{RGB}{213,125,28}
 \definecolor{ddrcol}{RGB}{55,105,165}
 \definecolor{neutralcol}{RGB}{235,238,242}
@@ -38,10 +46,39 @@
 \setlist[itemize]{leftmargin=*, itemsep=2pt, topsep=4pt}
 \setlist[enumerate]{leftmargin=*, itemsep=2pt, topsep=4pt}
 \captionsetup{font=small, labelfont=bf}
+\captionsetup[figure]{labelfont={bf,color=figcol}}
+\captionsetup[table]{labelfont={bf,color=tabcol}}
 \setlength{\emergencystretch}{2.5em}
 \widowpenalty=10000
 \clubpenalty=10000
 \raggedbottom
+
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.7}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.75}
+\setlength{\textfloatsep}{14pt plus 3pt minus 3pt}
+\setlength{\intextsep}{13pt plus 3pt minus 3pt}
+
+\newcommand{\figref}[1]{\hyperref[#1]{\textcolor{figcol}{Figure~\ref*{#1}}}}
+\newcommand{\tabref}[1]{\hyperref[#1]{\textcolor{tabcol}{Table~\ref*{#1}}}}
+\newcommand{\eqnref}[1]{\hyperref[#1]{\textcolor{eqcol}{Equation~\ref*{#1}}}}
+\newcommand{\secref}[1]{\hyperref[#1]{\textcolor{seccol}{Section~\ref*{#1}}}}
+
+\newcommand{\eqcaption}[1]{%
+  \par\vspace{-2pt}%
+  \begingroup
+    \small
+    \setlength{\baselineskip}{12.5pt}%
+    \noindent\textcolor{eqcol}{\textbf{Equation~\theequation:}}~#1\par
+  \endgroup
+  \vspace{9pt}}
+
+\newcommand{\headrow}{\rowcolor{tabhead}}
+\newcommand{\tabsetup}{\renewcommand{\arraystretch}{1.22}}
 
 \lstdefinestyle{source}{
   language=C++,
@@ -67,11 +104,21 @@
        \Large Quantized LLM Inference on HBM-Equipped CPUs\\[3pt]
        \large Evidence, software capability, and a decision-gated
        programme for CRESCO8}
-\author{Lucian Crainic}
-\date{26 July 2026}
+\author{}
+\date{}
 
 \begin{document}
 \maketitle
+
+%  Bibliography ordering.  unsrtnat follows the order in which entries
+%  are first cited, and this \nocite block is read before any prose, so
+%  it fixes that order: research literature first, then the technical
+%  and institutional sources cited for facts rather than for findings.
+%  Only works actually cited in this document appear.
+\nocite{dongarra2026gpus, fang2025kvplacement, goto2026aurorahpl,
+        ibeid2025aurora, jang2026itme, na2024llmcpu,
+        williams2009roofline, zhang2026cacheresident}
+\nocite{llamacpp2026}
 
 \begin{abstract}
 \noindent
@@ -119,7 +166,7 @@ conditional contribution, justified only by a measured limitation.
 \input{sections/06-methodology.tex}
 
 \clearpage
-\bibliographystyle{plainnat}
+\bibliographystyle{unsrtnat}
 \bibliography{../../bibliography/references}
 
 \end{document}

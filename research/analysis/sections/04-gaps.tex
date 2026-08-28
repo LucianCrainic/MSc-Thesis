@@ -128,39 +128,158 @@ constraint and retain socket-local placement as the topology study.
 This gap is secondary because a two-socket result is difficult to
 explain before the one-socket tier effect is established.
 
-\subsection{Conditional software gap: selective tiering}
+\subsection{Conditional software gap: selective tiering as a test of a
+published prediction}
 \label{sec:gap-software}
 
 \paragraph{\researchq{4}.}
-\emph{When the live set exceeds HBM, can an explicit CPU-side placement
-of weights and KV state improve performance over the best unmodified
-whole-process policy?}
+\emph{On a tier pair where the model weights are not guaranteed to fit
+in local HBM, does an explicit CPU-side split of weights and KV state
+beat the best unmodified whole-process policy, and how much of the
+headroom predicted for heterogeneous-memory KV placement survives on
+real hardware without oracle knowledge?}
 
-The corrected Aurora paper makes this a plausible systems question:
-its bulk matrix resides in DDR and selected panel data are staged into
-HBM~\cite{goto2026aurorahpl}.  Transformer data have different access
-patterns, so the useful split must be measured rather than copied.  Two
-candidate policies are:
+\paragraph{Why this framing replaces the previous one.}
+An earlier version of this section presented independent weight and KV
+placement as an open systems idea, motivated by analogy with Aurora's
+HPL, whose bulk matrix resides in DDR while selected panel data are
+staged into HBM~\cite{goto2026aurorahpl}.  A targeted literature search
+in August~2026 shows that the idea itself is no longer open.  Fang et
+al.\ formalise dynamic KV-cache placement across a high-bandwidth and a
+slower off-package tier as a latency-minimisation problem and derive an
+upper bound on what placement can buy~\cite{fang2025kvplacement}.
+Adjacent systems work argues the same architecture from other
+directions: Zhang et al.\ decouple weight-centric operators from KV
+management so that the reusable weight stream stays in a fast tier on
+multi-socket CPUs~\cite{zhang2026cacheresident}, and Jang et al.\
+exploit the predictable access pattern of weights and prefix state to
+place them across a tiered CXL hierarchy~\cite{jang2026itme}.
+
+The thesis therefore cannot claim to propose selective tiering, and
+should not try.  What remains open is narrower, and it is testable.
+
+\paragraph{What the existing treatment leaves unanswered.}
+\tabref{tab:rq4-delta} states the difference precisely.  The
+distinction that matters most is the third row.  Fang et al.\ exclude
+weight placement from their optimisation by assumption: weights are read
+at every decode step, so they fix the full model in HBM permanently and
+treat KV entries as the only scheduling variable.  That assumption is
+available to them because their fast tier holds the model with room to
+spare.  It is not available here.  A Max~9480 socket exposes 64\,GB of
+HBM2e, and only 16\,GB per domain under Flat+SNC4, so a quantized model
+of interest may consume most or all of the tier before any KV state
+exists.  The case their formulation rules out, namely KV state in HBM with
+weights displaced to DDR, is precisely the case CRESCO8 can be made to
+exhibit.
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\caption{What the published treatment assumes and what this thesis can
+observe.  The contribution of \researchq{4} lies in the right-hand
+column, not in the idea of tiered placement.}
+\label{tab:rq4-delta}
+\begin{tabularx}{\textwidth}{@{}P{2.55cm}YY@{}}
+\toprule
+\headrow
+\textbf{Dimension} & \textbf{Fang et al.~\cite{fang2025kvplacement}} &
+\textbf{This thesis on CRESCO8} \\
+\midrule
+Evidence
+& Behavioural simulator of decode-stage memory accesses, driven by
+  attention patterns extracted from real inference; no hardware
+  execution.
+& Measured execution on one Max~9480 socket, with page residency and
+  achieved bandwidth reported per tier. \\
+\addlinespace
+Phase
+& Decode only, stated as an explicit scope limit.
+& Prefill and sustained decode resolved separately, as in
+  \researchq{1}. \\
+\addlinespace
+Weight placement
+& Fixed in the fast tier by assumption and excluded from the
+  optimisation, because weights are read every step.
+& An experimental variable.  Weights are not guaranteed to fit, so
+  which class occupies the tier is the question rather than a
+  precondition. \\
+\addlinespace
+Tier pair
+& GPU HBM3 and CPU LPDDR5X across NVLink-C2C: roughly an order of
+  magnitude in bandwidth, crossed by explicit staging.
+& On-package HBM2e and DDR5 on one socket: a reported 2.9--3.4\(\times\)
+  bandwidth ratio, both tiers directly load/store addressable, placement
+  expressed as OS page policy rather than a copy. \\
+\addlinespace
+Policy class
+& Dynamic per-token migration under perfect foresight of future token
+  importance, yielding an upper bound of up to \(5.87\times\) over
+  static placement.
+& Static, auditable, whole-class placement with no oracle.  The
+  reported bound is therefore a ceiling on a different machine under an
+  unattainable assumption, not a target to reproduce. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Candidate policies.}
+The two policies are unchanged, but their status is not.  Transformer
+data have different access patterns from HPL panels, so the useful split
+must still be measured rather than copied:
 
 \begin{itemize}
   \item weights in HBM and KV/scratch in DDR, prioritising the repeated
-        weight stream in low-batch decode; and
+        weight stream in low-batch decode.  This matches the assumption
+        Fang et al.\ impose, so a result here tests whether that
+        assumption is the right one on a CPU tier pair; and
   \item KV state in HBM and weights in DDR when long context makes
-        attention-state traffic dominant.
+        attention-state traffic dominant.  This is the configuration
+        their formulation excludes, and it is the one for which no
+        measured evidence was found.
 \end{itemize}
 
-The static audit shows that this policy is not exposed as an ordinary
-CPU-side \lcpp{} control at the pinned commit.  That creates a possible
-software contribution, but only after \researchq{1} and \researchq{2} demonstrate a
-benefit and a capacity constraint.  The contribution would consist of
-the smallest auditable control that expresses the policy, not a general
-NUMA scheduler.
+\paragraph{Entry conditions and what the contribution now is.}
+The static audit shows that neither policy is exposed as an ordinary
+CPU-side \lcpp{} control at the pinned commit.  Stage~4 therefore still
+requires a small runtime change, and it still starts only after
+\researchq{1} and \researchq{2} have demonstrated a benefit and a
+capacity constraint.  What has changed is the claim attached to it.  The
+contribution is no longer the proposal of an abstraction; it is a
+measured, hardware-verified test of a placement policy whose value has
+so far been established only in simulation, on a tier pair that inverts
+the assumption under which that simulation was run.  Whether that test
+is the first of its kind is a claim the scope note below declines to
+make.  The
+implementation remains the smallest auditable control that expresses the
+policy, not a general NUMA scheduler.
 
 The implementation succeeds only if it beats the strongest existing
 baseline, not merely an unmanaged run.  Required ablations are:
 all-DDR, all-HBM where feasible, operating-system interleave or preferred
 policy if supported, and each selective placement.  Page residency and
 allocation failures must be reported.
+
+\paragraph{What a null result now establishes.}
+This reframing improves the position of a negative outcome.  Previously,
+finding no benefit from selective placement would have meant only that
+an untested idea did not work.  Now it bounds a published prediction:
+it would show that on a directly addressable CPU tier pair with a
+modest bandwidth ratio, static whole-class placement recovers little of
+the headroom that simulation attributes to placement on a wider,
+staged, accelerator-side hierarchy, and it would identify which of the
+differences in \tabref{tab:rq4-delta} accounts for the shortfall.
+That is a reportable result in either direction, which is the condition
+this review requires of every retained gap.
+
+\paragraph{Scope note.}
+This subsection is the one place where the review departs from its
+corpus-bounded rule, because the reframing depends on sources outside
+the four supplied papers.  The search behind it was web-first and is
+recorded in \texttt{bibliography/README.md}; it under-represents
+venue-only publications and must be repeated against the ACM Digital
+Library, IEEE~Xplore and the 2026 ISC/SC/IPDPS/ICS proceedings before
+the proposal is frozen.
 
 \subsection{Extensions, not core gaps}
 
@@ -191,19 +310,22 @@ and parallelisation variables not addressed by the primary question.
 
 \subsection{Priority and dependencies}
 
-This ordering turns the original catalogue of many speculative gaps
-into one primary question, two evidence-driven follow-ons and one
-conditional implementation.  It also preserves a complete thesis if
+\tabref{tab:gap-priority} states the resulting order and the condition
+under which each item may begin.  This ordering turns the original
+catalogue of many speculative gaps into one primary question, two
+evidence-driven follow-ons and one conditional implementation.  It also preserves a complete thesis if
 the runtime never needs to be changed.
 
 \begin{table}[htbp]
 \centering
 \small
+\tabsetup
 \caption{Recommended priority.  A later item starts only when the
 preceding evidence justifies it.}
 \label{tab:gap-priority}
 \begin{tabularx}{\textwidth}{@{}P{1.25cm}P{3.35cm}P{2.65cm}YY@{}}
 \toprule
+\headrow
 \textbf{Order} & \textbf{Question} & \textbf{Role} &
 \textbf{Entry condition} & \textbf{Useful result if null} \\
 \midrule
@@ -222,9 +344,11 @@ preceding evidence justifies it.}
 & Shows whether extra resources are neutral or harmful under explicit
   policies. \\
 \addlinespace
-4 & \researchq{4}: selective tiering & Conditional systems contribution
-& Reproducible HBM benefit, capacity pressure and missing existing control
-& A negative result bounds the value of fine-grained placement. \\
+4 & \researchq{4}: selective tiering & Conditional empirical test
+& Reproducible HBM benefit, capacity pressure, and no existing control
+  expressing the policy
+& A negative result bounds a published placement prediction on measured
+  hardware. \\
 \addlinespace
 5 & Energy, serving, Cache mode & Extensions
 & Validated measurement interfaces and remaining time

@@ -36,6 +36,11 @@ tools, not reasons to begin with a runtime rewrite.
 
 \subsection{Static findings}
 
+\tabref{tab:runtime-audit} records what the inspected source does and
+does not expose as a user-facing control.  The distinction the table
+draws is deliberate: \emph{not exposed} is a statement about the
+inspected path, not a claim that the behaviour is unreachable.
+
 \begin{table}[htbp]
 \centering
 \footnotesize
@@ -45,6 +50,7 @@ it does not mean that external Linux placement is impossible.}
 \label{tab:runtime-audit}
 \begin{tabularx}{\textwidth}{@{}P{2.8cm}P{5.35cm}Y@{}}
 \toprule
+\headrow
 \textbf{Capability} & \textbf{Source evidence} &
 \textbf{Consequence for the thesis} \\
 \midrule
@@ -190,7 +196,7 @@ prefill and decode, and how much extra packed storage it creates.
 
 This distinction matters for the memory-tier comparison.  A run that
 silently changes kernel coverage or packed representation changes both
-\(W\) and \(Q\) in the model of Section~\ref{sec:synthesis}.  Build
+\(W\) and \(Q\) in the model of \secref{sec:synthesis}.  Build
 features, runtime logs and peak resident memory belong in every run
 manifest.
 

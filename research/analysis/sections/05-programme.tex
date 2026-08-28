@@ -63,6 +63,9 @@ evidence, not commitments made in advance.}
 
 \subsection{Stage 0: platform and measurement qualification}
 
+\figref{fig:programme} draws the ladder these stages climb.  Each rung
+is unlocked by the evidence below it rather than promised in advance.
+
 The first deliverable is a dated platform record and a benchmark
 harness.  It should capture:
 
@@ -163,6 +166,15 @@ Stage 4 answers \researchq{4} only when the preceding results show:
   \item no existing, auditable mechanism that expresses that policy.
 \end{enumerate}
 
+A fifth condition follows from the reframing in
+\secref{sec:gap-software}.  Because the placement idea is already
+formalised in simulation~\cite{fang2025kvplacement}, the stage must
+state before implementation which of the differences in
+\tabref{tab:rq4-delta} it is testing, and must report the measured
+result against that prediction rather than against an unmanaged run
+alone.  A stage that cannot name the prediction it tests has no
+contribution left to make and should not be started.
+
 The first implementation target is a distinct, selectable CPU HBM
 buffer type using the runtime's existing abstractions.  The second,
 only if required, is a KV-cache buffer selector.  Each change needs unit
@@ -172,19 +184,26 @@ policy.  Upstream compatibility and a small patch are preferable to a
 fork-specific scheduler.
 
 No performance claim follows merely from making a control available.
-The systems contribution is the combination of a justified abstraction,
-correct placement and a measured benefit or well-explained negative
-result.
+The contribution is the combination of a justified abstraction, correct
+placement, and a measured benefit or well-explained negative result
+reported against the published prediction, rather than the proposal of
+selective tiering, which is no longer available as a novelty claim.
 
 \subsection{Deliverables and stopping rules}
+
+\tabref{tab:deliverables} pairs each stage with what it must produce
+and, more importantly, with the condition under which it should be
+abandoned rather than pursued.
 
 \begin{table}[htbp]
 \centering
 \small
+\tabsetup
 \caption{Deliverables and explicit stopping rules.}
 \label{tab:deliverables}
 \begin{tabularx}{\textwidth}{@{}P{2.25cm}YY@{}}
 \toprule
+\headrow
 \textbf{Stage} & \textbf{Deliverable} & \textbf{Stop or redirect when} \\
 \midrule
 0: qualify
@@ -207,7 +226,8 @@ result.
   answer a distinct question. \\
 \addlinespace
 4: implement
-& Minimal selective-tier control, tests and ablation
+& Minimal selective-tier control, tests, ablation, and a measured
+  comparison against the simulated prediction
 & Existing controls suffice, no capacity pressure exists, or selective
   placement has no credible mechanism. \\
 \bottomrule
@@ -215,9 +235,9 @@ result.
 \end{table}
 
 The thesis is complete after Stages 0--2 if they are executed rigorously.
-Stage 3 strengthens the locality contribution.  Stage 4 changes the
-thesis from primarily empirical to empirical-plus-systems, but it is not
-required for a coherent result.
+Stage 3 strengthens the locality contribution.  Stage 4 adds a
+hardware-verified test of a placement policy so far established only in
+simulation, but it is not required for a coherent result.
 
 \subsection{Risks to manage early}
 

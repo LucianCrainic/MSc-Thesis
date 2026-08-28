@@ -120,7 +120,15 @@ The same paper also sets a limit on the analogy.  HPL's bulk DDR matrix,
 HBM-staged panels, GPU GEMM, MPI communication and global scale differ
 from a single-node \lcpp{} decode loop.  The paper suggests that
 selective tiering is worth testing; it does not establish which LLM
-tensors should occupy HBM or how much improvement to expect.
+tensors should occupy HBM or how much improvement to expect.  That
+second question has since been treated formally, though only in
+simulation and only for KV state with weights pinned in the fast
+tier~\cite{fang2025kvplacement}; \secref{sec:gap-software} sets out
+what this leaves open.
+
+\figref{fig:causal-chain} states the chain the experiment has to
+observe rather than assume.  Every link in it is a place where a
+plausible story could substitute for a measurement.
 
 \subsection{Claims that should not enter the thesis as facts}
 
@@ -140,17 +148,19 @@ reviewed evidence:
 
 \subsection{From evidence to candidate questions}
 
-Table~\ref{tab:evidence-questions} separates the direct extension of
+\tabref{tab:evidence-questions} separates the direct extension of
 existing evidence from more speculative work.
 
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
 \small
+\tabsetup
 \caption{How the reviewed evidence motivates, but does not answer, the
 candidate thesis questions.}
 \label{tab:evidence-questions}
 \begin{tabularx}{\textwidth}{@{}P{3.1cm}YY@{}}
 \toprule
+\headrow
 \textbf{Candidate question} & \textbf{Existing basis} &
 \textbf{Missing observation} \\
 \midrule
@@ -173,9 +183,12 @@ Topology-aware scaling
   software version. \\
 \addlinespace
 Independent memory-tier placement
-& Aurora HPL stages selected data between DDR and HBM.
-& A CPU LLM runtime control and an ablation showing that selective
-  placement beats the best whole-process policy. \\
+& Aurora HPL stages selected data between DDR and HBM; KV-only
+  placement is formalised and bounded in
+  simulation~\cite{fang2025kvplacement}.
+& A CPU LLM runtime control and a hardware-measured ablation, including
+  the weights-in-DDR case that the simulation excludes by
+  assumption. \\
 \addlinespace
 Energy per token
 & The position paper motivates efficiency.

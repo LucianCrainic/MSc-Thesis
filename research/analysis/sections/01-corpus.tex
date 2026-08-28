@@ -31,17 +31,19 @@ and HPL-MxP on Aurora}, by Goto et al., arXiv:2604.09517v1
 ~\cite{goto2026aurorahpl}.  Its title, authors, twelve-page extent and
 reported campaign results agree with the paper itself.
 
-The four works occupy different evidential roles.  Table
-\ref{tab:corpus-roles} prevents results from one role being used as if
-they answered another.
+The four works occupy different evidential roles.
+\tabref{tab:corpus-roles} prevents results from one role being used as
+if they answered another.
 
 \begin{table}[htbp]
 \centering
 \small
+\tabsetup
 \caption{Role and transfer limit of each reviewed work.}
 \label{tab:corpus-roles}
 \begin{tabularx}{\textwidth}{@{}P{2.55cm}YYP{3.35cm}@{}}
 \toprule
+\headrow
 \textbf{Work} & \textbf{Direct contribution} &
 \textbf{Most useful evidence here} & \textbf{Principal transfer limit} \\
 \midrule
@@ -131,16 +133,18 @@ was in Quadrant+Flat for the reported application study, so the two
 sources of evidence must not be conflated.
 
 The clearest quantitative result is the single-socket STREAM Triad
-comparison:
+comparison reproduced in \tabref{tab:stream-critical}:
 
 \begin{table}[htbp]
 \centering
 \small
+\tabsetup
 \caption{Borealis single-socket STREAM Triad bandwidth, in GB/s
 ~\cite{ibeid2025aurora}.}
 \label{tab:stream-critical}
 \begin{tabular}{@{}lccc@{}}
 \toprule
+\headrow
 & \multicolumn{2}{c}{\textbf{Flat mode}} & \textbf{Cache mode} \\
 \cmidrule(lr){2-3}
 \textbf{Clustering} & \textbf{DDR5} & \textbf{HBM} & \textbf{DDR5+HBM cache} \\
