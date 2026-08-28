@@ -22,36 +22,22 @@
 
 ## What this thesis argues
 
-The Intel Xeon Max 9480 puts 64 GB of HBM on the CPU package. The literature
-establishes the pieces of the picture separately, and never joins them:
+> [!NOTE]
+> **Work in progress.** This section is deliberately empty until the
+> experimental phase produces results. Writing the argument here before
+> measuring it would be stating a conclusion the work has not yet earned.
 
-- **Na et al.** show CPU-only LLM inference on Xeon Max can be competitive, but
-  vary hardware and software factors together and never isolate HBM from DDR,
-  nor evaluate quantized `llama.cpp`.
-- **Ibeid et al.** measure the memory tiers on the same hardware — local HBM far
-  above DDR on STREAM, with strong placement dependence — but not LLM inference.
-- **Goto et al.** stage HPL data in HBM at Aurora scale without reporting an
-  isolated HBM effect.
+**To do**
 
-So the claim "HBM helps LLM inference on CPUs" is currently an inference across
-papers, not a measurement. **This thesis makes it a measurement:** hold the
-socket, model, quantization, runtime, prompt and decoding settings fixed, change
-only the memory-node policy, verify page residency, and report prefill and decode
-separately. The point is not that CPUs beat GPUs, nor a new inference runtime —
-it is controlled evidence about *when* the memory tier matters, and why.
+- [ ] State the argument, once there is a measured result to state it from
+- [ ] Summarise the four research questions and what each one settled
+- [ ] Record the headline numbers and where they sit against related work
 
-The work is organised as four ranked questions, each gated on the previous one:
-
-| | Question | Role |
-|---|---|---|
-| **RQ1** | How do verified local-HBM and local-DDR placement affect prefill and sustained decode, all else equal? | Primary empirical contribution |
-| **RQ2** | How does the benefit change as the live set approaches and crosses usable HBM capacity, and which component causes the transition? | Capacity envelope |
-| **RQ3** | Can explicit execution and page placement avoid the regressions seen with unmanaged multi-socket / SNC configurations? | Secondary |
-| **RQ4** | Once the live set exceeds HBM, can explicit placement of weights and KV state beat the best unmodified whole-process policy? | Conditional systems contribution |
-
-A null result is informative in each case, and the hypotheses are pre-registered
-in the gap analysis. Measurements run on the **CRESCO8** Xeon Max partition;
-the full reasoning lives in [`research/`](research/README.md).
+In the meantime the reasoning behind the project lives in
+[`research/`](research/README.md): the background and literature review in
+[`research/notes/`](research/README.md#notes), and the ranked research
+questions with their pre-registered hypotheses in the
+[gap analysis](research/analysis/README.md).
 
 ## Building
 
