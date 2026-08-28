@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img" aria-label="MSc Thesis — quantized LLM inference on HBM-equipped CPUs">
+  <title>MSc Thesis — quantized LLM inference on HBM-equipped CPUs</title>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#111722"/>
+      <stop offset="55%" stop-color="#0c111a"/>
+      <stop offset="100%" stop-color="#080b11"/>
+    </linearGradient>
+
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#800020"/>
+      <stop offset="55%" stop-color="#a8203c"/>
+      <stop offset="100%" stop-color="#d57d1c"/>
+    </linearGradient>
+
+    <radialGradient id="glow" cx="0.12" cy="0.9" r="0.85">
+      <stop offset="0%" stop-color="#800020" stop-opacity="0.34"/>
+      <stop offset="100%" stop-color="#800020" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="glow2" cx="0.86" cy="0.42" r="0.5">
+      <stop offset="0%" stop-color="#d57d1c" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#d57d1c" stop-opacity="0"/>
+    </radialGradient>
+
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V24" fill="none" stroke="#8fa3c0" stroke-opacity="0.05" stroke-width="1"/>
+    </pattern>
+
+    <clipPath id="card">
+      <rect x="0" y="0" width="1200" height="300" rx="18"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#card)">
+    <rect width="1200" height="300" fill="url(#bg)"/>
+    <rect width="1200" height="300" fill="url(#grid)"/>
+    <rect width="1200" height="300" fill="url(#glow)"/>
+    <rect width="1200" height="300" fill="url(#glow2)"/>
+    <rect x="0" y="0" width="7" height="300" fill="url(#edge)"/>
+
+    <!-- ── left column: identity and argument ─────────────────────────── -->
+    <g font-family="'IBM Plex Mono','SFMono-Regular',Menlo,Consolas,monospace">
+      <circle cx="66" cy="70" r="4" fill="#d57d1c"/>
+      <text x="82" y="75" font-size="13" letter-spacing="2.8" fill="#93a1b5">MSC THESIS  ·  SAPIENZA UNIVERSITY OF ROME</text>
+    </g>
+
+    <g font-family="'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif">
+      <text x="64" y="152" font-size="66" font-weight="700" letter-spacing="1.5" fill="#f4f7fb">TODO</text>
+
+      <!-- placeholder chip -->
+      <rect x="258" y="119" width="132" height="26" rx="13" fill="#800020" fill-opacity="0.22" stroke="#a8203c" stroke-opacity="0.55"/>
+      <text x="324" y="137" font-size="12" letter-spacing="1.4" text-anchor="middle" fill="#e5a3b1"
+            font-family="'IBM Plex Mono','SFMono-Regular',Menlo,Consolas,monospace">working title</text>
+
+      <text x="64" y="196" font-size="17.5" fill="#a2adbd">Quantized large-language-model inference on HBM-equipped CPUs: isolating</text>
+      <text x="64" y="221" font-size="17.5" fill="#a2adbd">on-package high-bandwidth memory from DDR on a single Xeon Max socket.</text>
+    </g>
+
+    <g font-family="'IBM Plex Mono','SFMono-Regular',Menlo,Consolas,monospace" font-size="12.5" letter-spacing="0.6" fill="#6d7889">
+      <text x="64" y="258">LaTeX · Tectonic · llama.cpp · Intel Xeon Max 9480 · CRESCO8</text>
+    </g>
+
+    <!-- ── right column: HBM-on-package motif ─────────────────────────── -->
+    <g transform="translate(0,-6)">
+      <!-- interconnect -->
+      <g stroke="#d57d1c" stroke-opacity="0.5" stroke-width="1.5">
+        <path d="M952 150 H972"/>
+        <path d="M1068 150 H1088"/>
+      </g>
+
+      <!-- HBM stacks, left -->
+      <g fill="#d57d1c" fill-opacity="0.20" stroke="#d57d1c" stroke-opacity="0.75" stroke-width="1.2">
+        <rect x="906" y="118" width="20" height="12" rx="2"/>
+        <rect x="906" y="134" width="20" height="12" rx="2"/>
+        <rect x="906" y="150" width="20" height="12" rx="2"/>
+        <rect x="906" y="166" width="20" height="12" rx="2"/>
+        <rect x="932" y="118" width="20" height="12" rx="2"/>
+        <rect x="932" y="134" width="20" height="12" rx="2"/>
+        <rect x="932" y="150" width="20" height="12" rx="2"/>
+        <rect x="932" y="166" width="20" height="12" rx="2"/>
+        <rect x="1088" y="118" width="20" height="12" rx="2"/>
+        <rect x="1088" y="134" width="20" height="12" rx="2"/>
+        <rect x="1088" y="150" width="20" height="12" rx="2"/>
+        <rect x="1088" y="166" width="20" height="12" rx="2"/>
+        <rect x="1114" y="118" width="20" height="12" rx="2"/>
+        <rect x="1114" y="134" width="20" height="12" rx="2"/>
+        <rect x="1114" y="150" width="20" height="12" rx="2"/>
+        <rect x="1114" y="166" width="20" height="12" rx="2"/>
+      </g>
+
+      <!-- socket package -->
+      <rect x="972" y="102" width="96" height="96" rx="8" fill="#141b26" stroke="#3d4a5e" stroke-width="1.4"/>
+      <rect x="984" y="114" width="72" height="72" rx="4" fill="#0e141d" stroke="#2c3646" stroke-width="1"/>
+      <g fill="#2f3b4d">
+        <rect x="992" y="122" width="14" height="14" rx="2"/>
+        <rect x="1010" y="122" width="14" height="14" rx="2"/>
+        <rect x="1028" y="122" width="14" height="14" rx="2"/>
+        <rect x="992" y="140" width="14" height="14" rx="2"/>
+        <rect x="1028" y="140" width="14" height="14" rx="2"/>
+        <rect x="992" y="158" width="14" height="14" rx="2"/>
+        <rect x="1010" y="158" width="14" height="14" rx="2"/>
+        <rect x="1028" y="158" width="14" height="14" rx="2"/>
+      </g>
+      <rect x="1010" y="140" width="14" height="14" rx="2" fill="#a8203c" fill-opacity="0.85"/>
+
+      <g font-family="'IBM Plex Mono','SFMono-Regular',Menlo,Consolas,monospace" font-size="10.5" letter-spacing="1.6" text-anchor="middle">
+        <text x="929" y="108" fill="#d57d1c" fill-opacity="0.9">HBM</text>
+        <text x="1111" y="108" fill="#d57d1c" fill-opacity="0.9">HBM</text>
+        <text x="1020" y="218" fill="#6d7889">XEON MAX 9480</text>
+      </g>
+    </g>
+
+    <rect x="0.5" y="0.5" width="1199" height="299" rx="18" fill="none" stroke="#2a3444" stroke-opacity="0.9"/>
+  </g>
+</svg>
