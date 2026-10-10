@@ -5,9 +5,17 @@
 \section{A performance model for LLM inference}
 \label{sec:inference-model}
 
+\secref{sec:llm-inference-foundations} identified the weights, KV cache
+and temporary buffers present during an inference request.  This section
+turns those objects and phases into quantities that can predict memory
+traffic and capacity on the target processor: the live set, arithmetic
+intensity, and the concurrency needed to turn nominal bandwidth into
+sustained bandwidth.
+
 \subsection{Prefill and autoregressive decode}
 
-Inference for a decoder-only transformer has two phases
+The two execution phases introduced in
+\figref{fig:inference-memory-lifetimes} must be modelled separately
 ~\cite{na2024llmcpu}.  During
 \emph{prefill}, the model processes the prompt and constructs the
 initial key--value (KV) cache.  Tokens from the prompt can be processed
@@ -17,64 +25,22 @@ token per sequence at each iteration.  Each iteration requires the
 relevant weights and KV state, then appends the key and value for the new
 token.  Dense full-context attention reads the prior cached KV; sliding
 window or sparse attention can reduce that history.
-\figref{fig:prefill-decode} shows the two phases and the metric that
-characterises each.
-
-\begin{figure}[htbp]
-\centering
-\begin{tikzpicture}[
-  font=\small,
-  io/.style={draw=black!50, fill=white, rounded corners=2pt,
-             minimum width=2.2cm, minimum height=0.9cm, align=center},
-  phase/.style={draw=black!65, fill=neutralcol, rounded corners=3pt,
-                minimum width=4.0cm, minimum height=1.55cm,
-                text width=3.7cm, align=center},
-  kv/.style={draw=hbmcol!85!black, fill=hbmcol!16, rounded corners=2pt,
-             minimum width=4.0cm, minimum height=0.8cm, align=center},
-  flow/.style={-{Stealth}, thick},
-  note/.style={font=\footnotesize, align=center}
-]
-  \node[io] (prompt) at (-6.0,0) {prompt};
-  \node[phase] (prefill) at (-2.5,0)
-    {\textbf{Prefill}\\process prompt in parallel\\build initial KV};
-  \node[phase] (decode) at (2.6,0)
-    {\textbf{Decode loop}\\access weights and KV\\
-     generate one token\\per sequence};
-  \node[io] (output) at (6.3,0) {token stream};
-  \node[kv] (cache) at (2.6,-2.1)
-    {KV cache: read required history, append new state};
-
-  \draw[flow] (prompt) -- (prefill);
-  \draw[flow] (prefill) -- (decode);
-  \node[note, black!75] at (0.05,1.45) {first token};
-  \draw[flow] (decode) -- (output);
-  \draw[flow, {Stealth}-{Stealth}] (decode) -- (cache);
-  \draw[flow] (decode.45) .. controls +(0.8,0.8) and +(-0.8,0.8)
-       .. (decode.135) node[midway, above, note]{next iteration};
-
-  \node[note, below=0.2cm of prefill]
-    {principal latency metric: TTFT};
-  \node[note, below=0.65cm of cache]
-    {principal latency metric: inter-token latency};
-\end{tikzpicture}
-\caption{Dataflow of prompt prefill and autoregressive decode.  The
-frequent description of prefill as compute-bound and decode as
-bandwidth-bound is a useful first-order model, not a universal property:
-batch, context, precision and kernel implementation can change the
-regime.  Author's synthesis.}
-\label{fig:prefill-decode}
-\end{figure}
 
 This phase distinction is essential when evaluating HBM.  A single
 end-to-end throughput number can hide a faster decode phase behind a
 long prompt, or hide a prefill regression behind a long generation.
-\textbf{TTFT and decode latency must therefore be reported
-separately.}  Prefill
+\textbf{Prefill time and decode latency must therefore be reported
+separately.}  Time to first token (TTFT) is also reported as the
+user-visible boundary, but it includes the first decode step and any
+in-boundary runtime overhead rather than being a pure prefill timer.  Prefill
 usually offers matrix--matrix parallelism, whereas low-batch decode is
 closer to matrix--vector execution and repeatedly streams weights.
 Larger batches increase weight reuse and can move decode toward
 matrix-engine throughput; long contexts simultaneously increase KV
-traffic.
+traffic.  The frequent description of prefill as compute-bound and decode as
+bandwidth-bound is therefore a useful first-order model, not a universal
+property: batch, context, precision and kernel implementation can change the
+regime.
 
 
 \subsection{Working-set capacity}
@@ -197,14 +163,18 @@ memory tiers on the same Roofline separates the region where a placement
 decision can matter from the region where it cannot: to the left of the
 ridge points the vertical distance between the two roofs is the full
 bandwidth ratio, while to the right both roofs lie above the compute
-ceiling, so no placement policy changes the bound.  Low-batch decode
-sits in the first region and prefill in the second.  That is the
-argument of this thesis expressed as a picture, and it is also why the
-two phases have to be measured separately rather than folded into a
-single throughput figure.
+ceiling, so no placement policy changes the bound.  Low-batch decode is
+expected to sit toward the first region, while sufficiently long or
+batched prefill usually has greater arithmetic intensity and may approach
+the second.  These are hypotheses about the selected kernels, not fixed
+coordinates: the operating points must be estimated from the actual
+workload and checked against counters.  The figure therefore explains
+why the two phases have to be measured separately rather than folded into
+a single throughput number.
 
 \begin{figure}[htbp]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\small, x=1.22cm, y=1.0cm,
   roof/.style={very thick},
@@ -262,17 +232,18 @@ single throughput figure.
   \draw[black!45, -{Stealth}] (5.85,-0.40) -- (5.75,3.15);
   \draw[black!45, -{Stealth}] (8.45,-0.40) -- (8.32,3.15);
 
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{Both memory tiers of one Xeon Max socket on a single Roofline.
 The bandwidth figures are full-socket Flat-mode STREAM Triad values
 measured on a Xeon Max 9470C~\cite{ibeid2025aurora} and are used only to
 set the slopes; the compute ceiling is a specification figure rather
 than a measurement, and neither has yet been established for CRESCO8.
-The shaded band marks the operating region this thesis investigates:
-left of the ridge points the vertical distance between the roofs is the
-full bandwidth ratio, while past them both roofs coincide with the
-compute ceiling and placement cannot move the bound.  Author's
-synthesis.}
+The shaded band illustrates a plausible low-intensity decode region; it
+does not locate every model or kernel.  Left of the ridge points the
+vertical distance between the roofs is the full bandwidth ratio, while
+past them both roofs coincide with the compute ceiling and placement
+cannot move the bound.  Author's synthesis.}
 \label{fig:roofline}
 \end{figure}
 
@@ -365,11 +336,11 @@ so the right-hand column is the one to read first.}
 \endlastfoot
 \textbf{TTFT}\newline{\footnotesize time to first token}
 & Elapsed time from an accepted request to the first emitted token.
-& The visible cost of \emph{prefill}, and the only phase metric a long
-  generation cannot hide.  \emph{Reading it:} scales with prompt
-  length.  Because prefill sits right of the ridge point in
-  \figref{fig:roofline}, a \textbf{large} tier effect here would be
-  surprising and would need explaining. \\
+& The user-visible boundary dominated by prompt processing, but also
+  including the first decode step and any runtime overhead inside the
+  declared boundary.  \emph{Reading it:} report it with prompt length
+  and with the runtime's direct prompt-evaluation timer; do not label it
+  as pure prefill time. \\
 \addlinespace[2pt]
 \textbf{ITL}\newline{\footnotesize inter-token latency}
 & The gap between consecutive emitted tokens, recorded per token.
@@ -380,7 +351,7 @@ so the right-hand column is the one to read first.}
   bandwidth. \\
 \addlinespace[2pt]
 \textbf{TPOT}\newline{\footnotesize time per output token}
-& Mean decode time,
+& Mean time between output tokens for $O\geq 2$,
   \((T_{\mathrm{E2E}} - T_{\mathrm{TTFT}})/(O-1)\).
 & A single summary of decode, and the metric the closest competing work
   reports~\cite{zhang2026cacheresident}.  \emph{Reading it:} good for
@@ -395,11 +366,12 @@ so the right-hand column is the one to read first.}
   TPOT does not; reported for comparability rather than for analysis. \\
 \addlinespace[2pt]
 \textbf{Prefill throughput}
-& Prompt tokens per second, \(S/T_{\mathrm{TTFT}}\).
+& Prompt tokens per second, \(S/T_{\mathrm{prefill}}\), using the
+  runtime's phase timer rather than TTFT.
 & Separates processing rate from prompt length, keeping runs with
-  different prompts comparable.  \emph{Reading it:} roughly flat in
-  prompt length once the prompt is long enough to fill the matrix
-  units; a fall-off indicates a capacity or kernel effect. \\
+  different prompts comparable.  \emph{Reading it:} interpret changes
+  against prompt length, achieved bandwidth and matrix-engine activity;
+  no flat region is assumed in advance. \\
 \addlinespace[2pt]
 \textbf{Tier ratio}\newline{\footnotesize \(R_{\text{phase}}\)}
 & Per-phase ratio of matched DDR and HBM timings, \eqnref{eq:ratio}.
@@ -469,10 +441,10 @@ program never used the tier}.}
 & Achieved bandwidth as a fraction of measured STREAM,
   \eqnref{eq:utilisation}.
 & Turns the argument of \secref{sec:littles-law} into a measurement.
-  \emph{Reading it:} a high tier ratio with high utilisation means the
-  tier was the limit; a low tier ratio with \textbf{low} utilisation
-  means \emph{concurrency} was the limit and the tier never got a
-  chance. \\
+  \emph{Reading it:} a high tier ratio with high utilisation is
+  consistent with bandwidth limitation.  A low tier ratio with
+  \textbf{low} utilisation leaves latency, insufficient concurrency and
+  runtime overhead as competing explanations. \\
 \addlinespace[2pt]
 \textbf{Remote traffic}
 & Bytes crossing UPI to the other socket.
@@ -503,24 +475,27 @@ program never used the tier}.}
   \frac{B_{\text{achieved}}}{B_{\text{STREAM}}} .
 \end{equation}
 \eqcaption{Bandwidth utilisation: the fraction of a tier's measured
-sustainable bandwidth that the workload actually drew.  This is the
-number that decides how a disappointing tier ratio should be read.  A
-decode phase running at \(U_{\mathrm{HBM}} \approx 0.3\) has not shown
-that HBM fails to help; it has shown that the workload asked HBM for
-nothing DDR5 could not also have supplied.}
+sustainable bandwidth that the workload actually drew.  This constrains
+how a disappointing tier ratio should be read.  A decode phase running at
+\(U_{\mathrm{HBM}} \approx 0.3\) does not establish that HBM bandwidth was
+saturated; latency, insufficient concurrency and runtime overhead remain
+competing explanations.}
 
-\subsubsection{Numbers that decide whether a run counts}
+\subsubsection{Run validity and study-level precision}
 
-The checks in \tabref{tab:metrics-validity} come first in the analysis,
-not last.  A run that fails any of them is discarded before its timings
-are looked at, because a placement study whose placement was not
-verified is not evidence of anything.
+The technical checks in \tabref{tab:metrics-validity} are evaluated by
+predeclared rules before a paired timing is used.  Placement, binding or
+throttling failures can invalidate a run because they show that the
+intended intervention was not applied.  Statistical dispersion is
+different: it is a study-level property, not a reason to discard a noisy
+or inconvenient result.  Insufficient precision leads to more sampling
+or a wider reported uncertainty interval.
 
 {\small\tabsetup
 \begin{xltabular}{\textwidth}{@{}P{2.55cm}YP{4.3cm}@{}}
-\caption{Validity checks applied to every run before its results are
-considered.  These are pass/fail, not quantities to be reported as
-findings.}
+\caption{Run-level validity checks and the study-level precision
+criterion.  Exclusion rules and the precision target are fixed before
+the primary comparison is examined.}
 \label{tab:metrics-validity}\\
 \toprule
 \headrow
@@ -559,11 +534,12 @@ findings.}
   is identical across tiers.  A divergence indicates a defect, not a
   finding. \\
 \addlinespace[1pt]
-\textbf{Repetition dispersion}
-& That an observed difference is larger than the noise it sits in.
-& Coefficient of variation across repetitions small enough that the
-  tier effect exceeds it; repetitions, warm-up and discarded runs all
-  reported. \\
+\textbf{Study precision}
+& Whether the paired tier effect is estimated precisely enough to answer
+  the research question.
+& A target confidence-interval width is fixed from pilot variability.
+  If it is not reached, collect more independent pairs or report the wider
+  interval; do not delete samples because the effect is small or noisy. \\
 \addlinespace[1pt]
 \textbf{Thermal state}
 & That the node was in a comparable operating condition for both arms.
@@ -624,8 +600,10 @@ The model yields three bounded predictions:
         depending on placement and memory mode; and
   \item batching and lower-bit weights should reduce weight-bandwidth
         pressure, while long contexts can reintroduce pressure through
-        the KV cache.
+        the KV cache; and
+  \item concurrent use of local HBM and DDR can help only if work can
+        overlap enough to offset scheduling and reduction overhead.
 \end{enumerate}
 
-These statements are hypotheses.  The literature reviewed next
-motivates them but does not establish them for CRESCO8.
+These statements are hypotheses.  None is established for CRESCO8 by
+results on a different platform.

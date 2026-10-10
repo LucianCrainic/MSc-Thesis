@@ -60,6 +60,7 @@ population are properties of CRESCO8, not of the product family.
 
 \begin{figure}[htbp]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\small,
   socket/.style={draw=black!65, fill=neutralcol, rounded corners=3pt,
@@ -93,7 +94,8 @@ population are properties of CRESCO8, not of the product family.
   \node[draw=black!35, dashed, rounded corners=4pt, inner sep=9pt,
         fit=(d0)(d1)(h0)(h1),
         label={[black!60]below:{one cache-coherent compute node}}] {};
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{Conceptual locality map of a CRESCO8 Xeon Max node.  Each
 socket has local HBM and DDR5; access to the other socket traverses UPI.
 The diagram represents locality, not physical package routing.
@@ -106,30 +108,11 @@ Author's synthesis based on the platform and cluster documentation
 \subsection{What the hardware looks like}
 \label{sec:hardware-photographs}
 
-Three photographs from the product documentation make
-\tabref{tab:hardware-hierarchy} concrete.  They are worth a moment,
-because the packaging explains several constraints that reappear later
-as experimental limitations.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.94\textwidth]{sd650v3-front-view.png}
-\caption{Front of one SD650~V3 tray.  The two servers are independent
-computers that happen to share a chassis: each has its own network
-ports, its own operator panel and its own management interface, and
-they share only power and water.  What is \emph{not} present is as
-informative as what is.  There is no video output, no removable media
-and no local console, because a node of this kind is never approached
-directly.  Reproduced from the Lenovo ThinkSystem SD650~V3 product
-guide~\cite{lp1603}.}
-\label{fig:sd650-front}
-\end{figure}
-
-\figref{fig:sd650-front} shows the tray from the front.  Two servers,
-side by side, each with a pair of 25\,GbE ports for the high-speed
-fabric and a 1\,GbE port for management.  The experiments in this thesis
-touch none of these interfaces: work arrives through the scheduler and
-results leave through the file system.
+The internal layout in \figref{fig:sd650-internal} makes the locality
+model concrete without turning the chapter into a product tour.  It is
+the one product photograph retained in the main text because the
+placement of processors, DIMMs and cold plates directly supports the
+experimental argument.
 
 \begin{figure}[htbp]
 \centering
@@ -145,32 +128,13 @@ ThinkSystem SD650~V3 product guide~\cite{lp1603}.}
 \label{fig:sd650-internal}
 \end{figure}
 
-\figref{fig:sd650-internal} is the more useful of the two.  The layout
-of one server, two processors with their own DIMMs on either side, is
+The layout of one server, two processors with their own DIMMs on either side, is
 the physical form of the locality argument made throughout this section:
 a thread running on the left-hand processor reaches the DIMMs beside it
 quickly and the DIMMs on the right slowly, and no amount of software can
-change the distance.  The absence of fans is also visible, and it
-matters for measurement rather than for acoustics, since a water-cooled
-socket holds its clock under sustained load instead of ramping fans and
-throttling.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.80\textwidth]{dw612s-enclosure-nodes.png}
-\caption{Six trays in one 6U DW612S enclosure, giving twelve independent
-two-socket nodes.  A scheduler allocation yields one of these, not the
-enclosure and not the rack.  Reproduced from the Lenovo ThinkSystem
-SD650~V3 product guide~\cite{lp1603}.}
-\label{fig:dw612s-enclosure}
-\end{figure}
-
-\figref{fig:dw612s-enclosure} completes the picture: twelve nodes in one
-enclosure, and a few dozen enclosures in the machine room.  A job that
-asks for a node receives one of the trays in this photograph, with its
-neighbours in the enclosure running unrelated work.  That is the reason
-\secref{sec:first-allocation} insists on recording which node was
-obtained.
+change the physical distance.  Direct water cooling supports sustained
+operation, but it does not guarantee an invariant clock; frequency,
+temperature and throttling still have to be observed during measurement.
 
 \subsection{Compute capability, and why it is not the binding constraint}
 
@@ -199,6 +163,7 @@ properties of the processor.
 
 \begin{figure}[htbp]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\small,
   mem/.style={draw=hbmcol!85!black, fill=hbmcol!14, rounded corners=3pt,
@@ -224,7 +189,8 @@ properties of the processor.
     (m.north) .. controls +(2.4,1.6) and +(-2.8,1.6) .. (x.north);
   \node[edgelbl, text=black!55, fill=white, inner sep=2pt] at (6.05,1.62)
     {no native INT4 path};
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{Path taken by a quantized weight from a memory tier to the
 matrix engine on Xeon Max.  The unpack stage is unavoidable for 4-bit
 formats and lies between the two things this thesis compares.  At batch
@@ -379,19 +345,27 @@ nuisance parameter to be fixed at ``all cores'' but a first-class
 factor, because it directly sets available concurrency; and a
 disappointing HBM result must be diagnosed by measuring achieved
 bandwidth rather than reported as an absence of effect.  A run that
-reaches 250\,GB/s on HBM has \emph{not} shown that HBM does not help;
-it has shown that \textbf{the program never asked HBM for anything DDR5
-could not also have delivered}.
+reaches 250\,GB/s on HBM has not established that HBM bandwidth was the
+limiting resource.  Its traffic rate remains within the measured DDR5
+envelope, so any performance difference cannot be attributed to
+exploiting HBM's additional bandwidth alone.
 
 \subsection{HBM memory modes}
 \label{sec:hbm-modes}
 
-Xeon Max supports three ways to expose HBM, shown side by side in
-\figref{fig:hbm-modes}~\cite{lp1603,intelmaxtuning}.  The mode is
-selected in firmware and is normally fixed for the lifetime of a boot.
+The four 16\,GB HBM2e stacks are physically present in every Xeon Max
+package, but software does not necessarily see them as 64\,GB of main
+memory.  The firmware's \emph{memory hierarchy} setting determines the
+role of HBM: it can be the only main memory, a separately addressable
+tier alongside DDR5, or an invisible cache in front of DDR5.  These are
+the three modes in \figref{fig:hbm-modes}.  The choice is a platform
+configuration, normally fixed for the lifetime of a boot; it is not a
+policy that an individual batch job can switch
+~\cite{lp1738,intelmaxtuning}.
 
 \begin{figure}[htbp]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\small,
   cpu/.style={draw=black!65, fill=neutralcol, rounded corners=2pt,
@@ -408,7 +382,7 @@ selected in firmware and is normally fixed for the lifetime of a boot.
   \node[font=\bfseries] at (0,1.15) {HBM-only};
   \node[cpu] (c0) at (0,0) {CPU cores};
   \node[hbm] (h0) at (0,-1.25) {HBM};
-  \node[absent] (d0) at (0,-2.5) {DDR5 absent};
+  \node[absent] (d0) at (0,-2.5) {DDR5 unavailable};
   \draw[link] (c0) -- (h0);
   \node[note] at (0,-3.55)
     {One visible memory tier; capacity limited to HBM.};
@@ -431,50 +405,159 @@ selected in firmware and is normally fixed for the lifetime of a boot.
   \draw[link] (h2) -- (d2);
   \node[note] at (10.4,-3.55)
     {Hardware-managed, direct-mapped cache in front of DDR5.};
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{The three Xeon Max memory modes, shown for one socket.  Flat
 mode is the only mode that exposes HBM and DDR5 as separately
 controllable memory tiers.  Author's synthesis from the Xeon Max product
-and tuning guides~\cite{lp1603,intelmaxtuning}.}
+and tuning guides~\cite{lp1603,lp1738,intelmaxtuning}.}
 \label{fig:hbm-modes}
 \end{figure}
 
 \begin{description}
-  \item[HBM-only mode.] The system contains no DDR5 and exposes HBM as
-  ordinary system memory.  It is simple for software but imposes a hard
-  capacity limit.  It is not the documented CRESCO8 configuration.
+  \item[HBM-only mode.] Firmware exposes HBM as the system's only usable
+  main-memory tier; DDR5 is absent from the operating system's address
+  space.  Lenovo documents this topology for a configuration without
+  installed DDR5, while a site may implement an equivalent experimental
+  state by administratively disabling populated DDR5.  The exact
+  mechanism must therefore be recorded on the machine.  Applications
+  require no HBM-specific placement mechanism, but the operating system,
+  services and all jobs share the same 64\,GB per-socket capacity.  The
+  usable application footprint is smaller than the nominal 64\,GB
+  (128\,GB in a dual-socket node).  This is the simplest route to HBM
+  bandwidth when the complete workload fits, but it is not the documented
+  production CRESCO8 configuration~\cite{lp1738}.
 
-  \item[Flat mode.] HBM and DDR5 share the physical address space but
-  appear as distinct NUMA memory nodes.  Applications can allocate
-  directly from a tier, or an external policy can bind pages with
-  \texttt{mbind}, libnuma or \texttt{numactl}.  Allocation is not enough:
-  first touch, page migration and memory mapping can change actual page
-  residency, which must be verified.
+  \item[Flat mode (1LM).] HBM and DDR5 are exposed as separate NUMA
+  address spaces.  The capacity of both tiers is available, and software
+  can put a bandwidth-critical object in HBM while leaving colder data in
+  DDR5.  That control is also an obligation: the application or launch
+  policy must bind threads and pages with \texttt{mbind}, libnuma or
+  \texttt{numactl}.  First touch, page migration and file-backed mappings
+  can still change actual residency, so requested placement must be
+  verified rather than inferred from the command line.
 
-  \item[Cache mode.] HBM is a hardware-managed, direct-mapped cache in
-  front of DDR5.  Applications see the DDR5 capacity without placing
-  objects explicitly, but software cannot choose which objects remain
-  in HBM.  Conflict misses, warm state and a working set near the cache
-  capacity can make performance workload-dependent
-  ~\cite{ibeid2025aurora}.
+  \item[Cache mode (2LM).] Software sees the DDR5 address space; the
+  on-package HBM is an invisible, hardware-managed, direct-mapped
+  memory-side cache.  Existing applications can therefore benefit
+  without an HBM-aware allocator and can use the full DDR5 capacity, but
+  software cannot reserve HBM for model weights or exclude cold objects.
+  Conflict misses, warm state and a working set near the cache capacity
+  can make performance workload-dependent
+  ~\cite{lp1738,ibeid2025aurora}.
 \end{description}
 
-Flat mode provides the strongest experimental design because local HBM
-and local DDR5 can be compared on the same socket without changing the
-processor or executable.  A Flat-versus-Cache comparison answers a
-different question: it measures explicit placement against a hardware
-cache policy.
+Flat mode requires two configuration stages on Linux.  Firmware must
+first select \emph{Flat} under \emph{Memory Hierarchy}.  After boot, each
+HBM DAX device must be changed from device-DAX to
+\texttt{system-ram} with \texttt{daxctl}; on Lenovo's dual-socket example
+this means two devices in Quadrant mode and eight in SNC4.  The operation
+must be repeated after every boot and therefore belongs in the node's
+administrator-managed startup configuration, not in an ordinary user
+job.  Only after that step do the HBM regions appear as allocatable
+memory-only NUMA nodes~\cite{lp1738}.
+
+The right choice follows the working set and the software's control over
+placement.  HBM-only removes tier selection when the complete workload
+comfortably fits in HBM.  Flat mode supports larger workloads and gives
+an HBM-aware program deterministic control over the hot set.  Cache mode
+supports the same large capacity with a transparent policy when such
+control is unavailable, at the cost of making HBM occupancy and
+replacement implicit.  For this thesis Flat mode provides the strongest
+experimental design because local HBM and local DDR5 can be compared on
+the same socket without changing the processor or executable.  A
+Flat-versus-Cache comparison answers a different question: explicit
+placement versus a hardware cache policy.
 
 \subsection{Clustering and NUMA}
+\label{sec:hbm-clustering}
 
-Memory mode is independent of the processor's clustering mode.  In
-Quadrant mode, one socket is normally presented as one compute locality
-domain.  Sub-NUMA Clustering (SNC4) exposes four domains per socket,
-each associated with a subset of cores, cache, DDR channels and HBM.
-SNC4 can increase bandwidth and reduce local latency for software that
-places workers and data per quadrant, but it also makes remote accesses
-easier to create.  In Flat+SNC4, the nominal 64\,GB HBM socket is divided
-into four 16\,GB locality domains.
+Memory mode is only the first configuration axis.  An independent
+firmware setting controls how finely each socket is partitioned.  With
+SNC disabled, which Lenovo calls \emph{Quadrant} or \emph{Quad} mode,
+the socket is one compute locality domain even though the package still
+contains four memory-controller quadrants.  SNC4 partitions the socket
+into four sub-NUMA clusters, each with a subset of cores, last-level
+cache and DDR channels.  When HBM is visible as main memory, each of the
+four HBM stacks also becomes a 16\,GB locality domain; in Flat mode these
+are additional memory-only nodes, whereas in Cache mode they remain
+invisible.  SNC4 can increase local bandwidth and reduce contention for
+a NUMA-aware program, but it also reduces the capacity of one local HBM
+allocation from 64\,GB to 16\,GB and creates more ways to access memory
+remotely~\cite{lp1738,intelmaxtuning}.
+
+Crossing three memory modes with two clustering modes gives the six
+configurations in \tabref{tab:hbm-six-configurations}.  The NUMA counts
+are for a complete dual-socket node, because that is the unit allocated
+on CRESCO8.  They describe the topology after any Flat-mode DAX devices
+have been converted to system RAM.  The two axes must not be conflated:
+Quadrant and SNC4 are not alternatives to HBM-only, Flat or Cache.
+Rather, every memory mode can be paired with either clustering mode, so
+an HBM-only experiment must still report whether it used HBM-only+Quad
+or HBM-only+SNC4~\cite{lp1738}.
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\caption{The six Xeon Max HBM configurations and their OS-visible NUMA
+topology on a dual-socket server.  ``Memory-only'' means that a NUMA node
+contains capacity but no CPUs.  Node identifiers are assigned by the
+running system and must be discovered rather than copied from the vendor
+example.  Synthesised from Lenovo's mode and topology diagrams
+~\cite{lp1738}.}
+\label{tab:hbm-six-configurations}
+\begin{tabularx}{\textwidth}{@{}P{1.8cm}P{1.55cm}P{4.35cm}Y@{}}
+\toprule
+\headrow
+\textbf{Memory mode} & \textbf{Cluster} &
+\textbf{Visible topology (two sockets)} &
+\textbf{Operational consequence} \\
+\midrule
+HBM-only & Quad
+  & 2 HBM nodes: one 64\,GB node per socket
+  & Bind work per socket; DDR5 is absent and all software consumes HBM. \\
+HBM-only & SNC4
+  & 8 HBM nodes: four 16\,GB nodes per socket
+  & Bind each worker and its allocation to the same quadrant. \\
+\addlinespace[2pt]
+Flat & Quad
+  & 4 nodes: two DDR5 nodes with CPUs and two 64\,GB HBM memory-only nodes
+  & Select the tier explicitly and pair each HBM node with cores on its
+    local socket. \\
+Flat & SNC4
+  & 16 nodes: eight DDR5 nodes with CPUs and eight 16\,GB HBM memory-only
+    nodes
+  & Select the tier and the matching quadrant; a misplaced page can be
+    local to the socket but remote to the worker. \\
+\addlinespace[2pt]
+Cache & Quad
+  & 2 visible DDR5 nodes, one per socket; HBM is invisible
+  & Bind by socket, but HBM contents remain hardware-managed. \\
+Cache & SNC4
+  & 8 visible DDR5 nodes, four per socket; HBM is invisible
+  & Bind by quadrant; software still cannot choose what the HBM caches. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+\FloatBarrier
+
+The two Flat-mode topologies are shown directly in Lenovo's hardware
+diagrams in \figref{fig:lenovo-flat-topologies}.  In Quad mode, each
+socket has one CPU-bearing DDR5 node and one 64\,GB HBM memory-only node.
+In SNC4, each of those is split four ways.  The HBM node numbers shown in
+the drawings are not architectural constants: on the illustrated boot,
+DDR5 occupies nodes 0--7 and HBM nodes 8--15, but firmware, kernel and
+hot-plug order can change numbering.  The stable relationship to recover
+is which CPU-bearing node is closest to each memory-only HBM node.
+
+Flat mode is particularly unforgiving because converting a DAX device
+to system RAM creates the HBM node but does not assign it CPUs.  A
+default allocation made by a thread on a CPU-bearing node can therefore
+land in DDR5; selecting an HBM node without selecting nearby cores can
+instead create remote traffic.  A valid experiment must inspect
+\texttt{numactl --hardware}, derive the CPU--HBM distance pairing, bind
+both CPU and memory, and then verify residency and traffic counters.
 
 This distinction explains why a mode cannot be labelled universally
 ``best''.  Ibeid et al.\ obtain the highest STREAM bandwidth with SNC4
@@ -482,6 +565,54 @@ and explicit locality, whereas Na et al.\ observe worse inference
 performance and more remote traffic under SNC4
 ~\cite{ibeid2025aurora,na2024llmcpu}.  The result depends on the
 software's placement policy, not only on the processor setting.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.97\textwidth]{lenovo-lp1738-flat-quad.png}
+
+\vspace{6pt}
+\includegraphics[width=0.90\textwidth]{lenovo-lp1738-flat-snc4.png}
+\caption{Flat mode on a two-socket Xeon Max server with Quadrant
+clustering (top) and SNC4 (bottom).  Blue dashed boundaries are
+CPU-bearing DDR5 NUMA nodes; red dashed boundaries are separately
+addressable HBM nodes.  Quadrant mode exposes one 64\,GB HBM node per
+socket, whereas SNC4 exposes four 16\,GB HBM nodes per socket.  Reproduced
+from Lenovo Press LP1738, Figures 7 and 11~\cite{lp1738}.}
+\label{fig:lenovo-flat-topologies}
+\end{figure}
+\FloatBarrier
+
+Lenovo's own STREAM experiment makes the interaction unusually visible
+in \figref{fig:lenovo-hbm-bandwidth}.  The DDR-only reference used two
+Xeon Platinum 8490H processors, while the HBM-mode tests used two Xeon
+Max 9480 processors.  The headline ratios against DDR therefore change
+the processor as well as the memory and are not a clean tier comparison.
+The within-mode contrast is nevertheless informative: Flat+Quad without
+binding delivered 101\% of the DDR reference, whereas explicit binding
+raised it to 201\%; bound Flat+SNC4 reached 228\%.  Thus the largest
+difference among the Flat bars is not merely the firmware mode but
+whether the benchmark actually reaches the intended memory.  Comparing
+the two bound Flat results, SNC4 adds 27 points on Lenovo's normalised
+scale, or about 13\% relative to bound Quad; the guide's prose statement
+of ``more than 25\%'' should therefore be read as percentage points for
+this chart, not as a 25\% relative speed-up.  These are vendor STREAM
+results from a specific SD650~V3 setup, not bandwidth values to inherit
+for CRESCO8~\cite{lp1738}.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.92\textwidth]{lenovo-lp1738-stream-bandwidth.png}
+\caption{Lenovo's normalised STREAM comparison across DDR5, Cache, Flat
+and HBM-only modes.  The baseline is the unbound Quadrant DDR result on
+a Xeon Platinum 8490H system; the three HBM modes use Xeon Max 9480, so
+the chart is not a same-processor DDR--HBM comparison.  The large
+separation between bound and unbound Flat-mode bars is the important
+result for this thesis: exposing HBM does not by itself place the
+workload there.  Reproduced from Lenovo Press LP1738, Figure
+21~\cite{lp1738}.}
+\label{fig:lenovo-hbm-bandwidth}
+\end{figure}
+\FloatBarrier
 
 \subsection{Cooling and instrumentation}
 
@@ -492,20 +623,6 @@ temperature, package power and throttling state.  Product-guide claims
 about facility heat recovery or cooling savings are not evidence about
 inference performance.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.82\textwidth]{dw612s-water-manifold.png}
-\caption{Rear of the enclosure.  Water is distributed to the trays
-through manifolds, and even the power supplies are water-cooled, so the
-enclosure has no air path at all.  For this thesis the consequence is
-narrow but useful: thermal conditions are set by facility water
-temperature rather than by neighbouring workloads, which removes one
-source of run-to-run variation.  Reproduced from the Lenovo ThinkSystem
-SD650~V3 product guide~\cite{lp1603}.}
-\label{fig:dw612s-manifold}
-\end{figure}
-
-\figref{fig:dw612s-manifold} shows how the water reaches the trays.
 The SD650~V3 includes XClarity management and a TI INA226-based
 power/energy meter with 100\,Hz sampling capability
 ~\cite{lp1603}.  This establishes a platform capability, not user
@@ -514,6 +631,7 @@ whole-node power meters cover different system boundaries; they must
 not be combined without first validating their scope, units, sampling
 and permissions.
 
+\FloatBarrier
 \subsection{Consequences for the thesis}
 
 Five requirements follow from the hardware, and each of them exists
@@ -541,4 +659,5 @@ because a specific thing can go wrong.
 
 The common thread is that this processor offers several ways to obtain a
 result that looks like a memory-tier effect and is not one.  Most of the
-methodological weight in Part~III goes on ruling those out.
+methodological weight in \chapref{chap:methodology} goes on ruling those
+out.

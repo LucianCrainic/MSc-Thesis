@@ -1,0 +1,20 @@
+\chapter{Theoretical and Technical Background}
+\label{chap:theoretical-background}
+
+This chapter establishes the concepts needed to reason about quantized
+large-language-model inference on a processor with two directly
+addressable memory tiers.  It first follows a request from text and tokens
+through prompt processing and autoregressive generation, identifying the
+state that exists at each stage.  It then narrows the system from cluster to
+socket, describes the Xeon Max memory hierarchy, and develops a
+phase-resolved performance model for that request.
+Platform-specific operating conditions are deferred to
+\chapref{chap:experimental-platform}; and the experimental protocol follows in
+\chapref{chap:methodology}.
+
+\input{chapters/sections/00-llm-inference-foundations}
+\input{chapters/sections/01-hpc-and-clusters}
+\input{chapters/sections/02-sd650-v3-hardware}
+\input{chapters/sections/04-inference-model}
+
+\cleardoublepage

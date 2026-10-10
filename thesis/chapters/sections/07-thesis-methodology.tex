@@ -7,19 +7,23 @@
 
 \subsection{Objective and research questions}
 
-The thesis should make a narrower claim than ``CPUs can run large
-language models''.  Its objective is to quantify when and why
-on-package HBM changes inference on a Xeon Max processor, using DDR5 on
-the same socket as the control.  This produces the three primary
-research questions set out in \tabref{tab:research-questions}, each
-with a prediction registered in advance:
+The working objective is to determine how the two local memory systems
+of a Xeon Max socket can jointly serve LLM inference.  In Flat mode,
+software can place weights and KV blocks in HBM or DDR5 and can schedule
+work against both tiers.  In Cache mode, HBM is a hardware-managed cache
+for DDR5, so the same object-level placement policies cannot be applied.
+The questions in \tabref{tab:research-questions} are provisional until
+the literature review and platform configuration have been checked.
+The September 2026 CRESCO8 check found Cache mode.  Flat-mode
+experiments therefore require an administrator-provided configuration;
+the Cache-mode question remains executable on the observed nodes.
 
 \begin{table}[htbp]
 \centering
 \small
 \tabsetup
-\caption{Primary research questions and predictions.  Predictions are
-registered expectations to test, not conclusions.}
+\caption{Provisional research questions and testable predictions.  The
+predictions are expectations, not conclusions.}
 \label{tab:research-questions}
 \begin{tabularx}{\textwidth}{@{}lYY@{}}
 \toprule
@@ -27,32 +31,40 @@ registered expectations to test, not conclusions.}
  & \textbf{Question} & \textbf{Prediction} \\
 \midrule
 RQ1
- & How does verified local HBM change prefill and decode performance
-   relative to local DDR5 on the same Max 9480?
- & The largest benefit occurs in low-batch decode.  Prefill and batched
-   decode show less benefit as weight reuse and matrix-engine utilization
-   increase. \\
+ & Which inference phases and memory objects demand HBM bandwidth, DDR
+   bandwidth, or capacity on one Max 9480 socket?
+ & Weight traffic dominates some low-batch decode regimes, while KV
+   traffic grows with context and concurrency.  Neither tier's STREAM
+   ratio alone predicts end-to-end performance. \\
 RQ2
- & How do weight precision, KV precision and live-set size change the
-   result as the working set approaches and exceeds 64\,GB per socket?
- & Quantization moves the capacity boundary but does not yield a
-   bit-width-proportional speedup.  Crossing local HBM introduces a
-   placement-dependent performance change. \\
+ & In Flat mode, can concurrent HBM and DDR access outperform the best
+   single-tier or static split policy at the same total core count?
+ & A split helps only when work in both tiers overlaps enough to offset
+   scheduling and reduction overhead; the result depends on traffic,
+   bandwidth saturation and thread allocation. \\
 RQ3
- & Can explicit socket or SNC-domain placement use additional cores and
-   bandwidth without the regressions reported for unmanaged execution?
- & Local replicas or shards reduce UPI traffic and outperform a
-   placement-oblivious two-socket run; SNC4 is expected to help when
-   allocation and workers share the same domains. \\
+ & How should weights and KV blocks be placed as model size, context,
+   concurrency and HBM capacity change?
+ & Keeping repeatedly streamed weights in HBM may beat placing the
+   entire KV pool there; the best allocation can change as KV traffic
+   grows.  Adaptive placement must beat tuned static baselines. \\
+\addlinespace[2pt]
+RQ4
+ & How does hardware Cache mode compare with Flat-mode policies for
+   representative working sets, if both modes are available?
+ & Cache mode may help when reuse fits its effective cache capacity;
+   Flat mode may do better when software can divide bandwidth and
+   capacity explicitly.  No ordering is assumed. \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-Energy per token is a conditional outcome, not a primary research
-question until a user-accessible measurement interface has been
-validated.  Multi-node inference, GPU comparison and online serving are
-outside the minimum scope.  They should be added only if the single-node
-results create a specific need or hypothesis.
+The current vLLM CPU-tiered-KV branch is an experimental implementation
+for RQ2 and RQ3, not a result that establishes either prediction.  Its
+weight-in-HBM, block-level KV split, feedback allocator and parallel
+attention scheduler require separate ablations.  Energy per token is a
+conditional outcome until a measurement interface has been validated.
+Multi-node inference and GPU comparison are outside the minimum scope.
 
 
 \subsection{Evidence and the primary contrast}
@@ -69,13 +81,14 @@ Four evidence levels should remain distinct:
         behaved.
 \end{enumerate}
 
-The primary contrast holds the processor, socket, cores, executable,
-model, input and operating conditions constant while changing verified
-page placement between local HBM and local DDR5 in Flat mode.  This is
-closer to a causal HBM comparison than either a Max 9480--Platinum 8592+
-comparison or a Flat--Cache comparison.  The former changes processor
-architecture; the latter changes the memory-management policy as well
-as the tier.
+The first controlled contrast holds the processor, socket, cores,
+executable, model and workload constant while changing verified page
+placement between local HBM and local DDR5 in Flat mode.  It calibrates
+the tier effect; it is not the whole thesis question.  The next contrast
+uses the same total core count and memory budget to compare sequential
+and concurrent access to both tiers, followed by object-level placement
+policies.  A Flat--Cache comparison, if possible, is a comparison of
+memory-management modes rather than an isolated tier effect.
 
 \subsection{Experimental sequence}
 
@@ -85,6 +98,7 @@ stable, in the dependency order drawn in
 
 \begin{figure}[htbp]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\small,
   stage/.style={draw=black!60, fill=neutralcol, rounded corners=2pt,
@@ -99,46 +113,52 @@ stable, in the dependency order drawn in
   \node[stage] (s1) at (3.7,0)
     {\textbf{1. Memory baseline}\\bandwidth, latency, locality};
   \node[primary] (s2) at (7.4,0)
-    {\textbf{2. Primary contrast}\\local HBM vs.\ local DDR5};
+    {\textbf{2. Flat calibration}\\HBM, DDR and concurrent reads};
   \node[stage] (s3) at (11.1,0)
-    {\textbf{3. Boundaries}\\capacity and topology};
-  \node[optional] (s4) at (11.1,-2.0)
-    {\textbf{4. Conditional extension}\\energy, second runtime or code change};
+    {\textbf{3. Flat placement}\\weights, KV and capacity};
+  \node[optional] (s4) at (7.4,-2.0)
+    {\textbf{Cache branch}\\working set and locality};
 
   \draw[flow] (s0) -- (s1);
   \draw[flow] (s1) -- (s2);
   \draw[flow] (s2) -- (s3);
-  \draw[flow] (s3) -- (s4);
-\end{tikzpicture}
-\caption{Experimental dependency order.  The primary HBM--DDR result
-does not depend on a later implementation contribution.  Author's
-design.}
+  \draw[flow] (s1) -- (s4);
+\end{tikzpicture}%
+}
+\caption{Proposed experimental dependency order.  Author's design.}
 \label{fig:experimental-sequence}
 \end{figure}
 
 \begin{description}
   \item[Stage 0: system manifest.] Record the items in
-  \tabref{tab:platform-record}, identify HBM and DDR NUMA nodes, and
-  verify whether Flat/Cache and Quadrant/SNC4 settings are available.
+  \tabref{tab:platform-record}, identify active memory and clustering
+  modes, and request a Flat-mode block if available.  Only in Flat mode
+  identify separate HBM and DDR NUMA nodes.
 
   \item[Stage 1: memory characterization.] Measure local and remote read,
   copy and triad bandwidth; unloaded and loaded latency; core-count
   scaling; and concurrent HBM--DDR traffic.  Establish saturation and
   run-to-run variability before fitting a performance model.
 
-  \item[Stage 2: primary inference contrast.] Freeze one runtime commit,
+  \item[Stage 2: inference tier calibration, when Flat is available.]
+  Freeze runtime commits,
   compiler and build.  Separate prefill from decode and compare verified
-  local HBM with local DDR5 on one socket.  This stage is the minimum
-  complete empirical study.
+  local HBM and DDR placement.  Measure serial and concurrent access to
+  both tiers with the same total core count and byte traffic.
 
-  \item[Stage 3: capacity and topology.] Move the live set through the
-  local HBM boundary, then compare explicit placement, two-socket
-  execution and SNC4 where available.  Cache mode is included only if a
-  controlled reboot/configuration can be arranged.
+  \item[Stage 3: object placement and capacity, when Flat is available.]
+  Compare all-HBM where
+  feasible, all-DDR, weights-first, KV-first and mixed-KV policies as
+  context and concurrency grow.  Evaluate the existing vLLM branch
+  against static allocation and attention-scheduling ablations, with
+  residency and output checks.  Keep any \lcpp{} result as a separately
+  named runtime baseline.
 
-  \item[Stage 4: conditional extension.] Add energy, a second runtime or
-  a software change only after the baseline identifies a repeatable
-  effect and the remaining time supports a proper evaluation.
+  \item[Cache-mode branch.] Measure the Cache-mode
+  working-set transition on the observed nodes.  If Flat is also
+  available under comparable conditions, compare modes explicitly.
+  Without Flat, report Cache-mode results and leave RQ2--RQ3
+  unanswered for CRESCO8 rather than implying tier control.
 \end{description}
 
 \subsection{Selecting factors without a Cartesian explosion}
@@ -160,8 +180,8 @@ factors that survive that test and states what each one is for.
 \textbf{Factor} & \textbf{Primary levels} & \textbf{Purpose} \\
 \midrule
 Memory placement
- & Local HBM and local DDR5; remote and mixed placement in a later stage
- & Isolate tier bandwidth, then quantify locality and spill effects. \\
+ & Local HBM, local DDR5, weights-first, KV-first and mixed KV
+ & Isolate tier effects and test use of both bandwidth sources. \\
 Working-set regime
  & Comfortably below, near, and above usable local HBM capacity
  & Locate a capacity boundary using measured resident memory rather than
@@ -176,10 +196,9 @@ Workload shape
    moderate batch/concurrency
  & Separate prefill, weight-streaming decode and KV-dominant regimes. \\
 Core/topology
- & Partial socket, full local socket, two local replicas or an explicit
-   shard; SNC4 only if available
- & Identify saturation and distinguish additional compute from remote
-   traffic. \\
+ & Partial and full local socket; fixed total cores with varied HBM/DDR
+   attention split; SNC4 only if available
+ & Identify saturation, overlap and scheduling overhead. \\
 Cache state
  & Cold-start/model-load and warmed steady state reported separately
  & Prevent file I/O or page-cache state from contaminating inference
@@ -203,12 +222,14 @@ is more informative than a large under-replicated grid.
 
 \subsection{Runtime and correctness controls}
 
-One runtime should be selected as the primary implementation and frozen
-at a named commit.  Selection criteria are support for the required
-model formats, a measurable prefill/decode boundary, controllable thread
-affinity, transparent build reproducibility and a viable way to direct
-or verify memory placement.  A second runtime is useful for external
-validity but should not multiply every factor in the main experiment.
+Use named, frozen commits of the experimental vLLM CPU branch for mixed
+KV placement and of its unmodified base for runtime comparisons.  The
+branch's present allocator assigns KV blocks to HBM or DDR for their
+lifetime, and its decode path can process tier-local runs concurrently.
+It does not migrate existing blocks.  Compare policies within the same
+commit when possible so that allocator, kernel and model changes do not
+confound the result.  A \lcpp{} run can calibrate broader CPU inference,
+but its token rates are not a controlled baseline for a vLLM policy.
 
 Performance comparisons are meaningful only when the computation is
 equivalent.  Record the model revision and tokenizer, use fixed prompts
@@ -219,29 +240,22 @@ treating them as interchangeable.
 
 \subsection{Metrics and explanatory measurements}
 
-The primary metrics are:
+The metric definitions, equations and validity criteria are consolidated
+in \secref{sec:metrics}; they are not repeated here.  The primary report
+contains direct prompt-evaluation time, TTFT, the inter-token-latency
+distribution, TPOT and output throughput at the declared concurrency.
+Peak and steady resident memory are decomposed by object and tier where
+the runtime and operating system expose that information.  Model loading
+and tokenization remain outside the phase timings unless a separately
+declared end-to-end experiment includes them.
 
-\begin{itemize}
-  \item prefill-dominated time to first output token (TTFT), with the
-        timed boundary declared;
-  \item median, p95 and p99 inter-token latency for decode;
-  \item output tokens/s and requests/s at the declared concurrency; and
-  \item peak and steady resident memory by object or tier where the
-        runtime exposes it.
-\end{itemize}
-
-E2E latency should be reported with an explicit boundary.  Model loading
-and tokenization are measured separately unless the experiment is
-deliberately end-to-end.  Throughput and reciprocal latency from the
-same fixed synchronous batch are two presentations of one observation,
-not independent confirmation.
-
-To explain a result, collect the smallest counter set that can test the
-mechanism: HBM and DDR traffic, UPI or remote traffic, achieved
-frequency, cache misses and relevant matrix-engine activity.  Counter
-names and availability are processor- and permission-specific.  A
-counter should be omitted rather than assigned a meaning that its scope
-does not support.
+The explanatory counter set is the smallest one able to test the proposed
+mechanism: HBM and DDR traffic, UPI or remote traffic, achieved frequency,
+cache misses and relevant matrix-engine activity.  Counter names and
+availability are processor- and permission-specific.  A counter is
+omitted rather than assigned a meaning that its scope does not support.
+Throughput and reciprocal latency from the same synchronous batch are two
+presentations of one observation, not independent confirmation.
 
 \subsection{Run protocol and statistical analysis}
 
@@ -255,7 +269,7 @@ Each reported comparison should follow the same protocol:
         run, not only after allocation;
   \item separate model loading and warm-up from steady-state timing,
         unless they are part of the declared metric;
-  \item counterbalance or randomize HBM and DDR run order to reduce
+  \item counterbalance or randomize policy run order to reduce
         thermal and temporal bias;
   \item retain every raw sample, failure and outlier flag together with
         the command and environment;
@@ -271,6 +285,15 @@ range together with a 95\% confidence interval appropriate to the
 sampling design.  Tail percentiles require enough generated tokens or
 requests to estimate them; p99 from a handful of observations is not a
 tail-latency result.
+
+The independent unit for a placement effect is a randomized or
+counterbalanced policy run pair on a named node, not an individual
+token.  Token latencies within one request share the same process,
+machine state and autoregressive history and must not be counted as
+independent replicates.  Confidence intervals therefore resample paired
+runs (and, if the within-run distribution is analysed, preserve its
+request-level grouping) rather than pooling every token into an
+artificially large sample.
 
 \subsection{Energy, if the boundary can be defended}
 
@@ -333,21 +356,16 @@ Reproducibility
 
 \subsection{When an implementation contribution is justified}
 
-The empirical study is complete without a new placement algorithm.  A
-software contribution should follow only if the baseline reveals a
-stable inefficiency, such as remote pages under an ostensibly local
-policy, an avoidable capacity spill, or poor use of the second socket.
-The smallest defensible intervention is preferable: separate
-HBM/DDR allocators, object-level placement, one worker per locality
-domain, or a topology-aware request router.
+The experimental vLLM branch already contains an object-level placement
+implementation.  The present task is to determine whether its mixed KV
+allocation and concurrent attention improve measured performance over
+strong static baselines, and under which workloads.  Further policy
+changes should target a measured inefficiency rather than be assumed
+beneficial.
 
-Any intervention must be compared with strong static baselines,
-including all-local placement when the model fits, weights-first and
-KV-first tiering, independent per-socket replicas, and hardware Cache
-mode if available.  Its evaluation must include placement overhead,
-remote traffic, memory use and output quality.  Novelty should be
-claimed only after a current literature search and an evaluation show
-that the measured advantage is not already provided by an existing
-runtime.  It must also distinguish an implemented contribution from the
-unevaluated NUMA-aware placement proposed by Na et al.
-~\cite{na2024llmcpu}.
+Compare all-local placement when it fits, weights-first and KV-first
+tiering, static mixed fractions, the adaptive allocator, and the tier
+attention scheduler both enabled and disabled.  Include placement and
+reduction overhead, remote traffic, memory use and output quality.
+Claim novelty only after the revised literature review and controlled
+measurements establish what differs from prior tiered-attention work.

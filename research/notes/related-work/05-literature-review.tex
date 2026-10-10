@@ -12,9 +12,11 @@ rewriting arithmetic: quantized weights, cheaper kernels, better use of
 the matrix units.  The other asks how much performance depends on
 \emph{where} data sits in a tiered memory system, and answers it with
 placement experiments, historically on HPC codes and more recently on
-the key--value cache of a transformer.  Each line is mature.  \textbf{Their intersection, on a CPU that
-actually has two memory tiers under software control, is close to
-empty}, and that emptiness is what this thesis is built on.
+the key--value cache of a transformer.  CPU optimization and HPC memory
+tiering are established lines of work; transformer-specific tiering is
+still developing.  \textbf{Published evidence at their intersection, on
+a CPU with two memory tiers under software control, remains limited},
+and that narrow intersection motivates this thesis.
 
 \subsection{Scope of the review}
 
@@ -29,14 +31,16 @@ tests.  The third is the smaller methodological literature on evaluating
 inference systems, which constrains how the measurements must be taken
 and reported.
 
-Two boundaries are worth stating.  Work on training, on distributed
-serving and on accelerator microarchitecture is excluded: it is a large
-literature, and none of it bears on a single-socket placement question.
-And a number of the works discussed below are preprints rather than
-refereed publications.  They are cited where they establish what the
-field is currently attempting, and their status is noted where a
-quantitative claim rests on them, since an unrefereed number is a weaker
-foundation than a refereed one.
+Two boundaries are worth stating.  Work centred on training, distributed
+serving or accelerator microarchitecture is not surveyed comprehensively.
+A small number of accelerator inference systems are retained only where they
+isolates a memory mechanism, such as tensor lifetime, offload traffic or
+KV-cache fragmentation, that can also arise in a CPU runtime; their performance numbers
+are not transferred to the machine studied here.  A number of the works
+discussed below are also preprints rather than refereed publications.  They are
+cited where they establish what the field is currently attempting, and their
+status is noted where a quantitative claim rests on them, since an unrefereed
+number is a weaker foundation than a refereed one.
 
 \secref{sec:related-work} then departs from this survey and reads four
 sources closely, on the grounds that they alone were measured on the
@@ -121,30 +125,29 @@ Zuo et al.\ 2026~\cite{zuo2026fairyfuse}
 \end{tabularx}
 \end{table}
 
-\subsection{Where the arithmetic-side lever runs out}
+\subsection{Where kernel gains stop translating end to end}
 \label{sec:lit-pivot}
 
-The last row of \tabref{tab:lit-arithmetic} is the most informative
-number in this section, and it is worth dwelling on.  Zuo et al.\ make
-their kernel almost thirty times faster and the model runs 1.24 times
-faster.  Nothing went wrong in their engineering: \emph{the arithmetic simply
-stopped being what the program was waiting for}.  Once a phase spends
-most of its time waiting for weights to arrive, removing instructions
-from that phase buys very little, and the marginal return on further
-kernel work collapses.
+The last row of \tabref{tab:lit-arithmetic} is particularly informative.
+Zuo et al.\ make the targeted kernel almost thirty times faster while the
+reported end-to-end gain is 1.24 times.  That gap does not by itself prove
+that memory is the only remaining bottleneck: unchanged operators,
+runtime overhead and data movement all contribute to the end-to-end
+result.  It does show that optimizing one arithmetic kernel can have
+sharply diminishing system-level returns, and it motivates measuring
+where the remaining time and traffic go.
 
-This is the pivot on which the rest of the review turns.  A decade of
-effort has moved CPU inference from implausible to routine by making the
-work cheaper, and that effort has been successful enough to expose what
-lies underneath it.  The interesting question is no longer how few
-operations a token can be generated with, but how quickly the bytes
-those operations consume can be delivered, which is a question about the
-memory system and therefore about placement.
+This is the pivot on which the rest of the review turns.  Arithmetic
+optimization remains important, but a complete explanation must also ask
+how quickly the bytes consumed by those operations are delivered.  On a
+processor whose HBM and DDR5 are separately addressable, that is an
+experiment about both the memory system and placement.
 \figref{fig:two-levers} sets the two lines of attack against each other
 and marks the point at which they stop being interchangeable.
 
 \begin{figure}[htbp]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\small,
   lever/.style={draw=black!65, fill=neutralcol, rounded corners=3pt,
@@ -186,7 +189,8 @@ and marks the point at which they stop being interchangeable.
      al.\ report 29.6$\times$ at the kernel and 1.24$\times$ end to
      end~\cite{zuo2026fairyfuse}.  This thesis pulls the right lever on
      hardware where both tiers are directly addressable.};
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{The two ways of shortening a decode step, and the point at
 which they stop being interchangeable.  Author's synthesis; the
 lower-bound expression is the step model developed in
@@ -234,6 +238,21 @@ read at every step, leaving KV entries as the only variable.  The last
 of these is the assumption a Xeon Max socket is able to break, because
 64\,GB of HBM, and only 16\,GB per domain under SNC4, is not comfortably
 larger than a quantized model of interest.
+
+Three earlier accelerator-side studies clarify which objects create the
+pressure, even though their performance numbers do not transfer directly to
+a CPU.  Pope et al.\ model the parameter and KV-cache traffic required by
+low-latency generation and show that reducing the number of KV heads can make
+far longer contexts feasible~\cite{pope2023efficient}.  FlexGen makes weights,
+activations and KV state explicit placement objects across GPU memory, CPU
+memory and storage, demonstrating that inference scheduling is a data-lifetime
+problem as well as a kernel problem~\cite{sheng2023flexgen}.  PagedAttention
+addresses a different failure mode: variable-size KV allocations, fragmentation
+and duplicated cache blocks can exhaust usable capacity before nominal memory
+is full~\cite{kwon2023pagedattention}.  These works motivate the object-level
+pipeline in \secref{sec:inference-pipeline-bottlenecks}; the present study asks
+which of those mechanisms is visible when the compute cores access HBM and DDR
+directly rather than through accelerator offload.
 
 Neighbouring systems work approaches the same architecture from other
 directions.  Jang et al.\ exploit the predictable access pattern of
@@ -309,7 +328,8 @@ Zhang et al.\ 2026~\cite{zhang2026cacheresident}
 \textbf{This thesis}
 & \textbf{HBM2e / DDR5, one Xeon Max socket}
 & \textbf{Whole process first; then weights against KV state}
-& \textbf{Measured, unmodified runtime, residency verified} \\
+& \textbf{Planned hardware evaluation; unmodified baseline runtime;
+  residency verification required} \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -391,8 +411,8 @@ sizes~\cite{li2024hardwareperspective}.
 \label{sec:lit-position}
 
 Reading the two lines of work together produces a fairly sharp picture.
-The arithmetic-side line has largely done its job and is now limited by
-data movement.  The memory-side line has strong measured results in HPC,
+Arithmetic-side improvements can be attenuated by work elsewhere in the
+runtime, including data movement.  The memory-side line has strong measured results in HPC,
 where the object being placed is an array, and much weaker measured
 results in inference, where the object being placed is a weight tensor
 or a KV cache.  The inference-side tiering evidence is dominated by
@@ -414,7 +434,7 @@ local-DDR placement for quantized \lcpp{} inference, with page residency
 and achieved bandwidth reported, on hardware rather than in a model.
 
 Whether that measurement is the first of its kind is not a claim this
-review makes.  The search described above was not systematic enough to
-support it, and the more useful framing is in any case comparative: the
-prediction exists, the bound has been derived, and what has not been
-done is to hold it against a real machine.
+review makes.  The literature search is not yet systematic enough to
+support priority language, and the more useful framing is comparative:
+the prediction exists, the bound has been derived, and the cited studies
+do not test it under this controlled hardware/runtime combination.

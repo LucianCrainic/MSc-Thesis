@@ -1,8 +1,12 @@
 # Critical review and research-gap analysis
 
-This LaTeX project critically reviews the four supplied papers, checks what
+This historical July 2026 LaTeX project critically reviews the four supplied papers, checks what
 their evidence transfers to CRESCO8, audits the relevant `llama.cpp` controls,
 and converts the remaining questions into a decision-gated thesis programme.
+Its questions precede the current vLLM tiered-KV experiment and the
+September Cache-mode finding; use the
+[October related-work review](../notes/related-work/review-2026-10-04.md)
+for the current framing.
 
 The review is intentionally corpus-bounded. It does not describe a question as
 field-wide novel until a systematic literature search has been completed.
@@ -13,9 +17,7 @@ field-wide novel until a systematic literature search has been completed.
 inv analysis
 ```
 
-This produces `build/research-gap-analysis.pdf`. The three-page supervisor
-brief derived from this review now lives in `research/briefings/` and is built
-separately with `inv briefings`.
+This produces `build/research-gap-analysis.pdf`.
 
 ## Structure
 

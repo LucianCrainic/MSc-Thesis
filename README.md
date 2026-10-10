@@ -30,13 +30,15 @@
 **To do**
 
 - [ ] State the argument, once there is a measured result to state it from
-- [ ] Summarise the four research questions and what each one settled
+- [ ] Summarise the final research questions and what each one settled
 - [ ] Record the headline numbers and where they sit against related work
 
-In the meantime the reasoning behind the project lives in
-[`research/`](research/README.md): the background and literature review in
-[`research/notes/`](research/README.md#notes), and the ranked research
-questions with their pre-registered hypotheses in the
+The theoretical background, platform description and provisional
+methodology live in the [`thesis/`](thesis/thesis.tex). The former
+literature review is parked in
+[research notes](research/notes/related-work/README.md) while its scope
+and research question are revised. The earlier research questions and
+hypotheses remain as historical material in the
 [gap analysis](research/analysis/README.md).
 
 ## Building
@@ -54,16 +56,13 @@ Then, from the repository root:
 |---|---|
 | `inv thesis` | `build/thesis.pdf` — the thesis |
 | `inv slides` | `build/slides.pdf` — the defence deck |
-| `inv notes` | `build/technical-background.pdf` — hardware, platform and literature notes |
 | `inv analysis` | `build/research-gap-analysis.pdf` — the critical review and research gap |
-| `inv briefings` | Every dated supervisor briefing in `research/briefings/` |
 | `inv all` | All of the above |
 | `inv list` | Lists every buildable document |
 | `inv clean` | Removes `build/` |
 
 Add `--open-pdf` to any single-document task to open the result on success, and
-`inv briefings --name <stem>` to build one briefing. Every PDF lands in `build/`;
-nothing is ever written back into the source tree.
+every PDF lands in `build/`; nothing is ever written back into the source tree.
 
 ## License
 

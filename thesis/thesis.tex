@@ -18,7 +18,7 @@
 % Packages
 \usepackage{microtype}
 \usepackage[english]{babel}
-\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
 \usepackage{hyperref}
 \usepackage{listings}
 \usepackage{xcolor}
@@ -32,10 +32,21 @@
 \usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{makecell}
-\usepackage{booktabs}
 \usepackage{tabularx}
+\usepackage{xltabular}
 \usepackage{longtable}
 \usepackage{threeparttable}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{colortbl}
+\usepackage{flafter}
+\usepackage{placeins}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, calc}
+\usepackage{xurl}
+\usepackage[numbers,sort&compress]{natbib}
 \usepackage[colorinlistoftodos,prependcaption,textsize=tiny]{todonotes}
 
 % Commands and Settings
@@ -45,6 +56,57 @@
 \newcommandx{\improvement}[2][1=]{\todo[linecolor=Plum,backgroundcolor=Plum!25,bordercolor=Plum,#1]{#2}}
 \newcommandx{\thiswillnotshow}[2][1=]{\todo[disable,#1]{#2}}
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+\graphicspath{{figures/}}
+
+\definecolor{accent}{RGB}{128,0,32}
+\definecolor{hbmcol}{RGB}{213,125,28}
+\definecolor{ddrcol}{RGB}{55,105,165}
+\definecolor{neutralcol}{RGB}{235,238,242}
+\definecolor{citecol}{RGB}{128,0,32}
+\definecolor{figcol}{RGB}{27,102,74}
+\definecolor{tabcol}{RGB}{35,82,145}
+\definecolor{eqcol}{RGB}{112,54,132}
+\definecolor{seccol}{RGB}{85,85,95}
+\definecolor{tabhead}{RGB}{236,239,244}
+
+\setlist[itemize]{leftmargin=*, itemsep=2pt, topsep=4pt}
+\setlist[enumerate]{leftmargin=*, itemsep=2pt, topsep=4pt}
+\captionsetup{font=small, labelfont=bf}
+\captionsetup[figure]{labelfont={bf,color=figcol}}
+\captionsetup[table]{labelfont={bf,color=tabcol}}
+\setlength{\emergencystretch}{2.5em}
+\widowpenalty=10000
+\clubpenalty=10000
+\raggedbottom
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.7}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.75}
+\setlength{\textfloatsep}{14pt plus 3pt minus 3pt}
+\setlength{\intextsep}{13pt plus 3pt minus 3pt}
+
+\newcommand{\figref}[1]{\hyperref[#1]{\textcolor{figcol}{Figure~\ref*{#1}}}}
+\newcommand{\tabref}[1]{\hyperref[#1]{\textcolor{tabcol}{Table~\ref*{#1}}}}
+\newcommand{\eqnref}[1]{\hyperref[#1]{\textcolor{eqcol}{Equation~\ref*{#1}}}}
+\newcommand{\secref}[1]{\hyperref[#1]{\textcolor{seccol}{Section~\ref*{#1}}}}
+\newcommand{\chapref}[1]{\hyperref[#1]{\textcolor{seccol}{Chapter~\ref*{#1}}}}
+\newcommand{\eqcaption}[1]{%
+  \par\vspace{-2pt}%
+  \begingroup
+    \small
+    \setlength{\baselineskip}{12.5pt}%
+    \noindent\textcolor{eqcol}{\textbf{Equation~\theequation:}}~#1\par
+  \endgroup
+  \vspace{9pt}}
+\newcommand{\headrow}{\rowcolor{tabhead}}
+\newcommand{\tabsetup}{\renewcommand{\arraystretch}{1.22}}
+\newcommand{\lcpp}{\texttt{llama.cpp}}
+\newcommand{\ggml}{\texttt{ggml}}
 \newcounter{boxlblcounter}  
 \newcommand{\makeboxlabel}[1]{\fbox{#1.}\hfill}
 \newenvironment{boxlabel}
@@ -76,6 +138,20 @@
     backgroundcolor=\color{white},
 }
 \lstset{style=mystyle}
+\lstdefinestyle{shell}{
+    language=bash,
+    basicstyle=\ttfamily\footnotesize,
+    backgroundcolor=\color{neutralcol},
+    frame=single,
+    rulecolor=\color{black!25},
+    framerule=0.4pt,
+    columns=fullflexible,
+    keepspaces=true,
+    breaklines=true,
+    showstringspaces=false,
+    aboveskip=8pt,
+    belowskip=8pt,
+}
 
 % Metadata
 \hypersetup{pdftitle={Thesis},pdfauthor={Lucian Dorin Crainic}, urlcolor=black, linkcolor=black, colorlinks=true}
@@ -111,8 +187,14 @@
 
 \mainmatter
 \let\cleardoublepage\clearpage
-% ================== CHAPTER 1 ==================
-\input{chapters/01-introduction}
+% ================== CHAPTERS ==================
+\input{chapters/01-theoretical-background}
+\input{chapters/02-experimental-platform}
+\input{chapters/04-methodology}
+
+% ================== APPENDICES ==================
+\appendix
+\input{appendices/a-reproducibility-checklist}
 
 % ================== ACKNOWLEDGMENTS ==================
 \input{front-matter/acknowledgements}

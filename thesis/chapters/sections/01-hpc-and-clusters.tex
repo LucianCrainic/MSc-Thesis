@@ -7,27 +7,26 @@
 
 \subsection{What makes a machine a supercomputer}
 
-A modern supercomputer is not a single very large computer.  It is a
-few hundred to a few thousand ordinary computers, wired together and
-managed as one facility.  Each of those computers, called a \textbf{node}, has its own
-processors, its own memory and its own operating system, and looks from
-the inside much like a well-specified server.  What turns
-a room full of nodes into a supercomputer is the three things bolted
-around them: a fast \textbf{interconnect} so that nodes can exchange
-data, a \textbf{parallel file system} they all see, and a
-\textbf{scheduler} that hands nodes out to users a job at a time.
+The experimental machine is a cluster: a set of independently booted
+\textbf{nodes} connected by a high-speed interconnect and managed as a
+single facility.  Each node has its own processors and memory.  A
+\textbf{parallel file system} provides shared storage, while a
+\textbf{scheduler} allocates nodes and cores to jobs.  The distinction
+matters here because the thesis studies a shared-memory effect within one
+node, not distributed inference across the cluster.
 
 \figref{fig:workstation-vs-cluster} contrasts this with the machine on
 a desk.  The important difference is not size but \emph{addressability}.
-On a workstation, every core can read every byte of memory directly.  On
-a cluster that remains true \emph{within} a node and stops being true
-between nodes: to use another node's memory, a program has to send a
-message over the network and wait.  Crossing that boundary is roughly
-three orders of magnitude more expensive than a local memory access, and
-almost everything difficult about parallel programming follows from it.
+Within a conventional shared-memory node, cores access the node's memory
+through the processor's load/store address space, although NUMA makes
+some paths slower than others.  Memory owned by another node is reached
+through an explicit communication mechanism such as message passing or
+remote direct memory access.  That boundary introduces network and
+software costs that are absent from the same-socket comparison.
 
 \begin{figure}[htbp]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\small,
   box/.style={draw=black!60, fill=neutralcol, rounded corners=2pt,
@@ -51,8 +50,8 @@ almost everything difficult about parallel programming follows from it.
   \draw[lnk] (wc) -- (wm);
   \draw[lnk] (wm) -- (wd);
   \node[lbl, text width=4.4cm, black!75] at (-4.4,-0.95)
-    {One operating system.\\\emph{Every core can address\\every byte
-     directly.}};
+    {One operating system.\\\emph{Memory is in one shared\\address
+     space.}};
 
   \draw[black!25, dashed] (-1.55,-1.95) -- (-1.55,3.3);
 
@@ -78,9 +77,10 @@ almost everything difficult about parallel programming follows from it.
   \draw[black!60, thick] (5.45,0.95) -- (5.45,0.16);
 
   \node[lbl, text width=6.6cm, black!75] at (4.9,-1.32)
-    {Many operating systems.\\\emph{A core addresses its own node's
-     memory directly;\\anything else is a message over the network.}};
-\end{tikzpicture}
+    {Many operating systems.\\\emph{Each node has a shared address
+     space;\\remote data requires communication.}};
+\end{tikzpicture}%
+}
 \caption{A workstation and a cluster, drawn to show where direct memory
 addressing stops.  The dashed line is the boundary this thesis works
 inside: all of the experiments run on \emph{one} node, so the
@@ -92,7 +92,8 @@ Author's synthesis.}
 \subsection{How a cluster is used}
 
 Access follows a fixed shape, and it is worth stating because it
-constrains the experimental method described in Part~III.  A user logs
+constrains the experimental method described in
+\chapref{chap:methodology}.  A user logs
 in to a \textbf{login node}, which is shared, modest, and meant for
 editing and compiling rather than for running anything.  Work is then
 submitted to a \textbf{batch scheduler}, which on CRESCO8 is Slurm, as
@@ -101,10 +102,11 @@ many cores, for how long, from which partition.  The scheduler queues
 the request, and when the resources free up it runs the script on the
 allocated nodes and returns the output.
 
-Two consequences matter here.  First, \emph{measurements are taken
-without an interactive session}, so anything the experiment needs to
-record must be written down by the job script at the time; there is no
-opportunity to inspect the machine afterwards.  Second, \emph{the
+Two consequences matter here.  First, although Slurm can provide an
+interactive allocation, the reported campaign uses batch scripts so
+that every command and environmental observation is archived with the
+result.  Anything needed to validate a run must therefore be captured by
+the job rather than reconstructed afterwards.  Second, \emph{the
 allocation is not the whole machine}.  A job receives specific nodes
 from a specific partition, and the properties of those nodes, rather than
 the properties advertised for the cluster, are what a result depends
@@ -120,8 +122,8 @@ this thesis cares about.  They carry two or more processor sockets, so
 memory access time depends on which socket a thread runs on.  They
 carry many more memory channels than a desktop, because feeding fifty
 or a hundred cores takes considerably more bandwidth than feeding
-eight.  They are cooled aggressively, on CRESCO8 with water, so that high core
-counts can be sustained rather than briefly reached.  And
+eight.  They require cooling and power delivery designed for sustained
+many-core load; CRESCO8 uses direct water cooling.  And
 increasingly they carry \emph{more than one kind of memory}, which is
 where this thesis begins.
 
@@ -129,10 +131,10 @@ That last point is the reason a cluster appears in a study of language
 model inference at all.  The processor examined here, the Intel Xeon CPU
 Max~9480, is a mainstream server CPU with an unusual property: it has
 high-bandwidth memory in the package alongside ordinary DDR5, and both
-can be addressed by software.  Machines built from it are rare, and
-essentially all of them are supercomputers.  Studying the question
-therefore requires cluster access even though the question itself is
-about a single socket.
+can be addressed by software.  Machines that expose this combination
+are uncommon and are often deployed as HPC systems.  The available route
+to the processor is therefore a cluster allocation even though the
+question itself is about a single socket.
 
 \subsection{What this thesis actually uses}
 
@@ -188,7 +190,8 @@ Node
 \end{tabularx}
 \end{table}
 
-With that scope fixed, the next two sections work inwards:
-\secref{sec:xeon-max-platform} describes the socket and the memory
-system that make the question askable, and \secref{sec:cresco8}
-describes the particular cluster on which it will be asked.
+With that scope fixed, \secref{sec:xeon-max-platform} describes the
+socket and memory system that make the question askable,
+\secref{sec:inference-model} develops the workload model, and
+\chapref{chap:experimental-platform} describes the particular cluster on
+which the question is tested.

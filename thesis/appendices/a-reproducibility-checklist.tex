@@ -1,0 +1,79 @@
+\chapter{Reproducibility Checklist}
+\label{app:reproducibility}
+
+This appendix records the operational material needed to reproduce the
+platform qualification in \secref{sec:first-allocation}.  It is separated
+from the main platform chapter because the commands support the argument
+but are not part of its theoretical development.
+
+\section{Topology-capture skeleton}
+
+The first HBM allocation should create a machine-readable system
+manifest.  The following script is a topology-capture skeleton rather
+than a performance benchmark; account names, available utilities and
+Slurm resource syntax must be checked on the live system.
+
+\begin{lstlisting}[style=shell,
+  caption={Minimal exclusive allocation for a CRESCO8 topology
+  manifest.}]
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=112
+#SBATCH --partition=cresco8_hbm
+#SBATCH --exclusive
+#SBATCH --hint=nomultithread
+#SBATCH --output=%j-system.txt
+
+set -u
+
+echo "job_id=${SLURM_JOB_ID}"
+echo "host=$(hostname)"
+date --iso-8601=seconds
+scontrol show job "${SLURM_JOB_ID}"
+lscpu
+lscpu --extended
+numactl --hardware
+lstopo-no-graphics 2>/dev/null || true
+cat /sys/devices/system/cpu/smt/active 2>/dev/null || true
+findmnt -t lustre 2>/dev/null || true
+module list 2>&1 || true
+\end{lstlisting}
+
+\section{Minimum platform record}
+
+The manifest should be extended, subject to permissions, with the
+evidence in \tabref{tab:platform-record}.
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\caption{Minimum platform record for an inference result.}
+\label{tab:platform-record}
+\begin{tabularx}{\textwidth}{@{}lY@{}}
+\toprule
+\headrow
+\textbf{Category} & \textbf{Record} \\
+\midrule
+Identity
+ & Hostname, Slurm job ID, partition, date and node allocation. \\
+Processor
+ & Exact SKU, sockets, physical cores, SMT state, microcode, governor,
+   turbo policy and observed frequency. \\
+Memory
+ & Memory and clustering modes, NUMA distance matrix, HBM and DDR
+   node IDs, DIMM population, huge-page state and measured local/remote
+   bandwidth. \\
+I/O
+ & Lustre mount and striping used for model loading; NIC identity and
+   NUMA affinity if multi-node tests are attempted. \\
+Software
+ & OS and kernel, loaded modules, compiler, runtime commit, linked
+   libraries, build flags and complete command line. \\
+Telemetry
+ & Available RAPL, performance-counter and management-controller
+   interfaces, including permissions and measurement boundaries. \\
+\bottomrule
+\end{tabularx}
+\end{table}
