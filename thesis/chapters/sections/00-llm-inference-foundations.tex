@@ -48,51 +48,67 @@ serially dependent, even though the operations inside one pass are parallel.
 
 \begin{figure}[htbp]
 \centering
+\begingroup
+\definecolor{generationink}{HTML}{263445}
+\definecolor{generationblue}{HTML}{365D85}
+\colorlet{generationaccent}{sapred}
+\definecolor{generationborder}{HTML}{CBD5DF}
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
-  font=\small,
-  ticket/.style={draw=black!55, fill=white, rounded corners=1.5pt,
-                 minimum height=0.72cm, inner xsep=7pt, align=center},
-  generated/.style={ticket, draw=hbmcol!85!black, fill=hbmcol!15},
-  model/.style={draw=ddrcol!85!black, fill=ddrcol!12,
-                rounded corners=3pt, minimum width=3.0cm,
-                minimum height=1.0cm, align=center},
-  flow/.style={-{Stealth}, thick, black!65},
-  loop/.style={-{Stealth}, thick, hbmcol!85!black},
-  note/.style={font=\footnotesize, text=black!72, align=center}
+  font=\small\sffamily, text=generationink,
+  card/.style={line width=0.65pt, rounded corners=4pt, align=center},
+  ticket/.style={card, draw=generationborder, fill=generationink!3,
+                 minimum height=0.72cm, inner xsep=8pt},
+  generated/.style={ticket, draw=generationaccent, fill=generationaccent!10,
+                    text=generationaccent!70!black},
+  model/.style={card, draw=generationblue, fill=generationblue!9,
+                minimum width=3.0cm, minimum height=1.0cm,
+                inner sep=8pt},
+  context/.style={draw=generationborder, line width=0.5pt,
+                  rounded corners=6pt, inner sep=5pt},
+  flow/.style={-{Stealth[length=5pt,width=4pt]}, line width=0.8pt,
+               draw=generationink!75},
+  loop/.style={flow, draw=generationaccent},
+  note/.style={font=\footnotesize\sffamily, text=generationink!80,
+               align=center}
 ]
-  \node[note, anchor=east] at (-6.35,1.2) {prompt tokens};
-  \node[ticket] (p1) at (-5.55,1.2) {High};
-  \node[ticket, right=0.05cm of p1] (p2) {bandwidth};
-  \node[ticket, right=0.05cm of p2] (p3) {memory};
-  \node[ticket, right=0.05cm of p3] (p4) {can};
+  \node[ticket] (p1) at (-4.8,1.4) {High};
+  \node[ticket, right=0.12cm of p1] (p2) {bandwidth};
+  \node[ticket, right=0.12cm of p2] (p3) {memory};
+  \node[ticket, right=0.12cm of p3] (p4) {can};
+  \node[context, fit=(p1)(p2)(p3)(p4)] (prompt) {};
+  \node[note, left=0.3cm of prompt] {prompt tokens};
 
   \node[model] (model) at (0.1,-0.35)
     {decoder-only\\transformer};
-  \node[model, right=1.0cm of model] (logits)
+  \node[model, right=0.65cm of model] (logits)
     {logits over\\the vocabulary};
-  \node[model, right=1.0cm of logits] (select)
+  \node[model, right=0.65cm of logits] (select)
     {decoding policy\\select one token};
-  \node[generated, right=0.9cm of select] (new) {reduce};
+  \node[generated, right=0.65cm of select] (new) {reduce};
 
-  \draw[flow] (p4.south) |- (model.north);
+  % Feed the complete prompt into the top of the model card.  The final
+  % vertical segment keeps the arrowhead perpendicular to the card border.
+  \draw[flow] (prompt.south) -- ++(0,-0.28) -| (model.north);
   \draw[flow] (model) -- (logits);
   \draw[flow] (logits) -- (select);
   \draw[flow] (select) -- (new);
   \draw[loop] (new.south) -- ++(0,-0.85) -| (model.south)
-    node[pos=0.28, below, note, text=hbmcol!85!black]
+    node[pos=0.28, below, note, text=generationaccent]
       {append to the context; repeat};
 
-  \node[note, anchor=east] at (-6.35,-2.45) {next context};
-  \node[ticket] at (-5.55,-2.45) {High};
-  \node[ticket] at (-3.75,-2.45) {bandwidth};
-  \node[ticket] at (-1.95,-2.45) {memory};
-  \node[ticket] at (-0.65,-2.45) {can};
-  \node[generated] at (0.65,-2.45) {reduce};
-  \node[note, anchor=west, text width=4.9cm] at (1.55,-2.45)
+  \node[ticket] (n1) at (-4.8,-2.6) {High};
+  \node[ticket, right=0.12cm of n1] (n2) {bandwidth};
+  \node[ticket, right=0.12cm of n2] (n3) {memory};
+  \node[ticket, right=0.12cm of n3] (n4) {can};
+  \node[generated, right=0.12cm of n4] (n5) {reduce};
+  \node[context, fit=(n1)(n2)(n3)(n4)(n5)] (next) {};
+  \node[note, left=0.3cm of next] {next context};
+  \node[note, right=0.55cm of next, text width=4.9cm]
     {The new token is now an input to the next step.};
 \end{tikzpicture}%
 }
+\endgroup
 \caption{Autoregressive generation at token level.  Token boundaries are
 illustrative and depend on the tokenizer; the example is not intended to show
 the output of a particular model.  Author's synthesis.}
@@ -180,65 +196,109 @@ them.
 
 \begin{figure}[htbp]
 \centering
+\begingroup
+\definecolor{lifetimeink}{HTML}{263445}
+\definecolor{lifetimeblue}{HTML}{365D85}
+\colorlet{lifetimeaccent}{sapred}
+\definecolor{lifetimeborder}{HTML}{CBD5DF}
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
-  font=\small,
-  stage/.style={draw=black!60, fill=neutralcol, rounded corners=2pt,
-                minimum width=2.45cm, minimum height=0.95cm, align=center},
-  flow/.style={-{Stealth}, thick, black!65},
-  state/.style={rounded corners=2pt, minimum height=0.54cm, align=center,
-                font=\footnotesize},
-  label/.style={font=\footnotesize\bfseries, anchor=east},
-  note/.style={font=\scriptsize, align=center, text=black!72}
+  font=\small\sffamily, text=lifetimeink,
+  card/.style={line width=0.65pt, rounded corners=4pt, align=center,
+               inner xsep=5pt, inner ysep=7pt},
+  stage/.style={card, draw=lifetimeborder, fill=lifetimeink!3,
+                text width=2.15cm, minimum width=2.5cm,
+                minimum height=1.6cm},
+  state/.style={card, font=\footnotesize\sffamily,
+                text width=2.15cm, minimum width=2.5cm,
+                minimum height=1.15cm},
+  cache/.style={state, draw=lifetimeaccent, fill=lifetimeaccent!9},
+  temporary/.style={state, draw=lifetimeborder, fill=lifetimeink!3},
+  flow/.style={-{Stealth[length=5pt,width=4pt]}, line width=0.8pt,
+               draw=lifetimeink!75},
+  label/.style={font=\footnotesize\sffamily, anchor=east,
+                text width=2.1cm, align=right},
+  note/.style={font=\footnotesize\sffamily, align=center,
+               text=lifetimeink!80}
 ]
-  \node[stage] (load) at (-5.6,2.2) {load / initialise};
-  \node[stage] (tok) at (-2.75,2.2) {tokenize prompt};
-  \node[stage] (pre) at (0.1,2.2) {prefill};
-  \node[stage] (dec) at (2.95,2.2) {decode loop};
-  \node[stage] (out) at (5.8,2.2) {detokenize};
-  \draw[flow] (load) -- (tok);
-  \draw[flow] (tok) -- (pre);
-  \draw[flow] (pre) -- (dec);
-  \draw[flow] (dec) -- (out);
-  \draw[flow] (dec.north) .. controls +(0,0.7) and +(0,0.7) .. (dec.north)
-    node[above, note] {one token at a time};
+  % Fixed columns connect each memory operation to its inference stage.
+  \foreach \x in {0,2.75,5.5,8.25,11} {
+    \draw[lifetimeborder, densely dashed, line width=0.4pt]
+      (\x,1.45) -- (\x,-3.0);
+  }
+  \node[note] at (0,4.15) {\textbf{Model startup}};
+  \node[note] at (6.875,4.15)
+    {\textbf{One request}\quad (stages from left to right)};
+  \draw[lifetimeborder, line width=0.65pt]
+    (-1.25,3.85) -- (1.25,3.85);
+  \draw[lifetimeborder, line width=0.65pt]
+    (1.5,3.85) -- (12.25,3.85);
 
-  \node[label] at (-6.9,0.85) {weights};
-  \node[state, draw=ddrcol!85!black, fill=ddrcol!13,
-        minimum width=11.35cm, anchor=west] at (-5.9,0.85)
-    {persistent, read-only model state reused by every request and decode step};
+  \node[stage] (load) at (0,2.2)
+    {\textbf{Load model}\\{\footnotesize initialise weights}};
+  \node[stage] (tok) at (2.75,2.2)
+    {\textbf{Tokenize}\\{\footnotesize text to token IDs}};
+  \node[stage, draw=lifetimeblue, fill=lifetimeblue!9] (pre) at (5.5,2.2)
+    {\textbf{Prefill}\\{\footnotesize process the prompt}};
+  \node[stage, draw=lifetimeaccent, fill=lifetimeaccent!9] (dec) at (8.25,2.2)
+    {\textbf{Decode}\\{\footnotesize one position per step}};
+  \node[stage] (out) at (11,2.2)
+    {\textbf{Detokenize}\\{\footnotesize token IDs to text}};
+  \draw[flow] (load.east) -- (tok.west);
+  \draw[flow] (tok.east) -- (pre.west);
+  \draw[flow] (pre.east) -- (dec.west);
+  \draw[flow] (dec.east) -- (out.west);
+  % Distinct entry and exit points make this a visible feedback loop.
+  \draw[flow, draw=lifetimeaccent]
+    ($(dec.north)+(0.65,0)$) -- ++(0,0.3) -- ++(-1.3,0)
+    -- ($(dec.north)+(-0.65,0)$);
+  \node[note, text=lifetimeaccent] at (8.25,3.6) {repeat until stop};
 
-  \node[label] at (-6.9,0.0) {KV cache};
-  \node[state, draw=hbmcol!85!black, fill=hbmcol!15,
-        minimum width=2.45cm, anchor=west] (kvpre) at (-1.2,0.0)
-    {created in prefill};
-  \node[state, draw=hbmcol!85!black, fill=hbmcol!24,
-        minimum width=5.45cm, anchor=west] at (1.4,0.0)
-    {read and extended as the context grows};
+  \node[label, text=lifetimeblue] at (-1.6,0.35)
+    {\textbf{Model weights}\\persistent};
+  \node[state, draw=lifetimeblue, fill=lifetimeblue!9,
+        text width=12.9cm, minimum width=13.5cm] at (5.5,0.35)
+    {\textbf{Load once; keep resident across requests.}\\
+     Read during prefill and every decode step.};
 
-  \node[label] at (-6.9,-0.85) {temporary};
-  \node[state, draw=black!55, fill=black!6,
-        minimum width=2.45cm, anchor=west] at (-4.05,-0.85)
-    {token buffers};
-  \node[state, draw=black!55, fill=black!6,
-        minimum width=2.45cm, anchor=west] at (-1.2,-0.85)
-    {prefill activations};
-  \node[state, draw=black!55, fill=black!6,
-        minimum width=2.45cm, anchor=west] at (1.65,-0.85)
-    {step activations};
-  \node[state, draw=black!55, fill=black!6,
-        minimum width=2.45cm, anchor=west] at (4.5,-0.85)
-    {output buffers};
+  \node[label, text=lifetimeaccent] at (-1.6,-1.1)
+    {\textbf{KV cache}\\per request};
+  \node[note, text width=4.8cm] at (1.375,-1.1) {No KV cache yet};
+  \node[cache] (kvpre) at (5.5,-1.1)
+    {\textbf{Create}\\from prompt};
+  \node[cache, fill=lifetimeaccent!16] (kvdec) at (8.25,-1.1)
+    {\textbf{Read + grow}\\each step};
+  \node[state, draw=lifetimeaccent!45, fill=lifetimeaccent!3] (kvend) at (11,-1.1)
+    {\textbf{Release}\\after request};
+  \draw[flow, draw=lifetimeaccent] (kvpre.east) -- (kvdec.west);
+  \draw[flow, draw=lifetimeaccent] (kvdec.east) -- (kvend.west);
 
-  \node[note, text width=12.0cm] at (0,-1.75)
-    {Capacity is the sum of simultaneously live objects; traffic depends on
-     how often each object is read or written.  These are related but distinct
-     limits.};
+  \node[label] at (-1.6,-2.55)
+    {\textbf{Temporary buffers}\\examples by stage};
+  \node[temporary] at (0,-2.55) {Load / packing\\workspace};
+  \node[temporary] at (2.75,-2.55) {Token ID\\buffers};
+  \node[temporary] at (5.5,-2.55) {Prefill\\activations};
+  \node[temporary] at (8.25,-2.55) {Per-step\\activations};
+  \node[temporary] at (11,-2.55) {Text / output\\buffers};
+
+  \node[card, draw=lifetimeborder, fill=lifetimeink!3,
+        text width=6.1cm, minimum width=6.6cm, minimum height=1.6cm,
+        font=\footnotesize\sffamily] at (2.05,-4.25)
+    {\textbf{Capacity: how much memory is occupied?}\\
+     Sum of the bytes held at the same time.};
+  \node[card, draw=lifetimeborder, fill=lifetimeink!3,
+        text width=6.1cm, minimum width=6.6cm, minimum height=1.6cm,
+        font=\footnotesize\sffamily] at (8.95,-4.25)
+    {\textbf{Traffic: how much data is moved?}\\
+     Bytes moved by reads and writes,\\including repeated accesses.};
 \end{tikzpicture}%
 }
-\caption{Inference stages and tensor lifetimes for one autoregressive
-request.  The diagram separates persistent, growing and transient state; it
-does not imply that every runtime materialises each buffer separately.
+\endgroup
+\caption{Inference stages and memory lifetimes for one autoregressive request.
+Weights persist across requests; the KV cache is created in prefill and grows
+during decode; temporary buffers are shown by stage.  Columns indicate stages,
+not durations or memory sizes.  Allocations and cache release depend on the
+runtime; detokenization can overlap decode.
 Author's synthesis, informed by Pope et al., FlexGen and
 PagedAttention~\cite{pope2023efficient,sheng2023flexgen,kwon2023pagedattention}.}
 \label{fig:inference-memory-lifetimes}
@@ -252,81 +312,3 @@ latency} (ITL), also called time per output token, measures successive decode
 steps.  Throughput in tokens per second depends on whether tokens are counted
 for one sequence or across a batch.  These metrics answer different questions
 and must be reported with prompt length, generated length and concurrency.
-
-\subsection{Where memory can limit CPU inference}
-\label{sec:inference-pipeline-bottlenecks}
-
-The pipeline exposes several different memory problems; referring simply to
-``the memory bottleneck'' hides the mechanism.  \tabref{tab:inference-pipeline}
-separates them.  Na et al.'s CPU characterisation confirms that prefill and
-decode stress the machine differently~\cite{na2024llmcpu}, while analytical
-work across inference hardware explains the low arithmetic intensity of
-small-batch generation~\cite{pope2023efficient,yuan2024roofline}.  Evidence
-from accelerator serving is included where it identifies a tensor lifetime or
-allocation problem, not as a prediction of a Xeon Max speedup.
-
-\begin{table}[htbp]
-\centering
-\small
-\tabsetup
-\caption{Memory pressure along an LLM inference request.  ``Possible limit''
-names a mechanism to test, not an assumption that it dominates every model or
-runtime.}
-\label{tab:inference-pipeline}
-\begin{tabularx}{\textwidth}{@{}P{2.15cm}P{3.05cm}YP{3.0cm}@{}}
-\toprule
-\headrow
-\textbf{Stage} & \textbf{Principal objects} & \textbf{Possible memory limit}
-& \textbf{Treatment here} \\
-\midrule
-Load and initialise
-& model file, weights, packed copies
-& Storage I/O, page faults and temporary duplication determine startup and
-  whether the resident model fits a tier.
-& Measured separately; excluded from steady-state token rates. \\
-\addlinespace[2pt]
-Tokenize and prepare
-& input text, token IDs, request metadata
-& Usually small in bytes, but serial runtime work can enter TTFT.
-& Kept inside end-to-end TTFT; not attributed to HBM without evidence. \\
-\addlinespace[2pt]
-Prefill
-& weights, prompt activations, KV writes
-& Long prompts expose matrix--matrix parallelism and temporary storage, while
-  weights are reused across positions and the initial KV cache is written.
-& Prompt-evaluation time and throughput reported separately. \\
-\addlinespace[2pt]
-Decode linear layers
-& weights, small activations
-& At low batch, little reuse is available before the next layer and the
-  weight set may be streamed again for every token.
-& Primary candidate for a bandwidth benefit; tested against Roofline and
-  counters. \\
-\addlinespace[2pt]
-Decode attention
-& growing KV cache, new key/value
-& Dense attention reads an increasing history and appends new state; capacity
-  grows with context and batch, and allocation can fragment.
-& Context and concurrency sweep plus resident-set and placement checks. \\
-\addlinespace[2pt]
-Select and detokenize
-& vocabulary scores, sampling and text buffers
-& Small state but serial execution, synchronisation or runtime overhead can
-  cap latency even when bandwidth is available.
-& Included in user-visible latency; isolated before assigning causality. \\
-\bottomrule
-\end{tabularx}
-\end{table}
-\FloatBarrier
-
-These limits interact.  Quantization shrinks the persistent weight stream but
-does not necessarily shrink the KV cache; grouped-query or multi-query
-attention reduces KV state; batching reuses weights but increases request
-state; and long context increases KV traffic even when the weight footprint is
-unchanged.  A working set may be \emph{capacity-bound} because it does not fit,
-\emph{bandwidth-bound} because useful work waits for a sustained byte rate, or
-\emph{latency/overhead-bound} because too few accesses are in flight to reach
-that rate.  Only the second condition predicts a proportional benefit from a
-faster memory tier.  \secref{sec:inference-model} develops the quantitative
-tests for distinguishing these cases after the next two sections establish
-the cluster and processor on which they occur.

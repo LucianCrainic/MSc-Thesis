@@ -1,0 +1,111 @@
+%======================================================================
+%  The software that runs a trained model
+%======================================================================
+
+\section{Inference engines: running a trained model}
+\label{sec:inference-engines}
+
+A trained model supplies an architecture and learned weights; an
+\textbf{inference engine} is the software that executes it to answer requests.
+It loads the model, prepares input tokens, manages weights, KV caches and
+temporary buffers, and calls numerical kernels on the available processors.
+It also coordinates prefill, repeated decode steps, token selection and
+stopping, returning generated text to the application.  In a serving system,
+the engine can schedule and batch several requests.  It therefore connects
+the application to the computation and memory operations described in the
+previous section~\cite{llamacppproject2026,vllm2026}.
+
+Two prominent, widely used open-source engines are \lcpp{} and vLLM.
+\lcpp{} is a C/C++ implementation designed to run models across a broad range
+of hardware, including CPUs and GPUs, with support for quantized weights and
+both local execution and server interfaces~\cite{llamacppproject2026}.
+vLLM is an inference and serving engine designed for high throughput; it
+combines request batching with efficient KV-cache management and provides
+interfaces for applications to submit requests and receive
+outputs~\cite{vllm2026,kwon2023pagedattention}.
+Both fulfil the same basic role: turning a trained model and an input request
+into an executable generation process.
+
+\figref{fig:inference-engine-role} separates the model files, the engine and
+the hardware.  The model supplies the learned parameters; the engine controls
+their execution; the hardware performs the calculations and stores the
+tensors.  The following section introduces the machines on which that work runs.
+
+\begin{figure}[htbp]
+\centering
+\begingroup
+\definecolor{engineink}{HTML}{263445}
+\definecolor{engineblue}{HTML}{365D85}
+\colorlet{engineaccent}{sapred}
+\definecolor{engineborder}{HTML}{CBD5DF}
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\small\sffamily, text=engineink,
+  card/.style={draw=engineborder, fill=engineink!3,
+               line width=0.65pt, rounded corners=4pt, align=center,
+               inner xsep=6pt, inner ysep=8pt},
+  action/.style={card, fill=white, text width=2.2cm,
+               minimum width=2.6cm, minimum height=1.65cm},
+  external/.style={card, text width=2.2cm,
+                   minimum width=2.6cm, minimum height=1.65cm},
+  flow/.style={-{Stealth[length=5pt,width=4pt]}, line width=0.8pt,
+               draw=engineink!75},
+  note/.style={font=\footnotesize\sffamily, text=engineink!80,
+               align=center}
+]
+  % The engine boundary contains software responsibilities, while the
+  % trained model and physical hardware remain separate inputs/resources.
+  \node[card, draw=engineblue, fill=engineblue!3,
+        minimum width=10.0cm, minimum height=5.0cm] (engine) at (3.4,0.1) {};
+  \node[font=\small\sffamily\bfseries, text=engineblue] at (3.4,1.95)
+    {Inference engine};
+  \node[note] at (3.4,1.45) {e.g.\ \lcpp{} or vLLM};
+
+  \node[card, draw=engineblue, fill=engineblue!9,
+        text width=6.2cm, minimum width=6.8cm,
+        minimum height=1.1cm] (model) at (3.4,3.8)
+    {\textbf{Trained model files}\\
+     {\footnotesize weights, configuration and tokenizer}};
+  \draw[flow, draw=engineblue] (model.south) -- (engine.north)
+    node[midway, right, note] {load};
+
+  \node[external] (request) at (-3.65,0.2)
+    {\textbf{Application}\\{\footnotesize prompt + settings}};
+  \node[action] (prepare) at (0,0.2)
+    {\textbf{Prepare}\\{\footnotesize tokenize\\schedule}};
+  \node[action, draw=engineblue, fill=engineblue!9] (run) at (3.4,0.2)
+    {\textbf{Generate}\\{\footnotesize prefill / decode\\sample / stop}};
+  \node[action] (format) at (6.8,0.2)
+    {\textbf{Return}\\{\footnotesize tokens to text}};
+  \node[external, draw=engineaccent, fill=engineaccent!9] (response) at (10.45,0.2)
+    {\textbf{Response}\\{\footnotesize generated text}};
+  \draw[flow] (request.east) -- (prepare.west);
+  \draw[flow] (prepare.east) -- (run.west);
+  \draw[flow] (run.east) -- (format.west);
+  \draw[flow, draw=engineaccent] (format.east) -- (response.west);
+
+  \node[card, draw=engineaccent!50, fill=engineaccent!6,
+        text width=8.7cm, minimum width=9.2cm, inner ysep=5pt,
+        font=\footnotesize\sffamily] at (3.4,-1.55)
+    {\textbf{Manage runtime memory}\\
+     resident weights, KV caches and temporary buffers};
+
+  \node[card, text width=6.2cm, minimum width=6.8cm,
+        minimum height=1.1cm] (hardware) at (3.4,-3.85)
+    {\textbf{CPU / GPU and memory}\\
+     {\footnotesize execute numerical kernels and hold tensors}};
+  \draw[{Stealth[length=5pt,width=4pt]}-{Stealth[length=5pt,width=4pt]},
+        line width=0.8pt, draw=engineblue] (engine.south) -- (hardware.north)
+    node[midway, right, note] {execute kernels;\\read / write tensors};
+\end{tikzpicture}%
+}
+\endgroup
+\caption{The inference engine connects an application, a trained model and
+the hardware that executes it.  The horizontal path shows request processing;
+the vertical connections show model loading and hardware use.  This is a
+conceptual view: token selection repeats within decode, and text may be
+returned incrementally.  Author's synthesis based on the project
+documentation~\cite{llamacppproject2026,vllm2026}.}
+\label{fig:inference-engine-role}
+\end{figure}
+\FloatBarrier
