@@ -49,31 +49,46 @@ evidence in \tabref{tab:platform-record}.
 \centering
 \small
 \tabsetup
-\caption{Minimum platform record for an inference result.}
-\label{tab:platform-record}
-\begin{tabularx}{\textwidth}{@{}lY@{}}
-\toprule
+\begin{tabularx}{\textwidth}{lY}
 \headrow
-\textbf{Category} & \textbf{Record} \\
-\midrule
+\headcell{Category} & \headcell{Record} \\[3pt]
+\tabheadrule
+\tabstripeRow
 Identity
- & Hostname, Slurm job ID, partition, date and node allocation. \\
+ & Hostname, Slurm job ID, partition, date and node allocation. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 Processor
  & Exact SKU, sockets, physical cores, SMT state, microcode, governor,
-   turbo policy and observed frequency. \\
+   turbo policy and observed frequency. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
 Memory
  & Memory and clustering modes, NUMA distance matrix, HBM and DDR
    node IDs, DIMM population, huge-page state and measured local/remote
-   bandwidth. \\
+   bandwidth. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 I/O
  & Lustre mount and striping used for model loading; NIC identity and
-   NUMA affinity if multi-node tests are attempted. \\
+   NUMA affinity if multi-node tests are attempted. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
 Software
  & OS and kernel, loaded modules, compiler, runtime commit, linked
-   libraries, build flags and complete command line. \\
+   libraries, build flags and complete command line. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 Telemetry
  & Available RAPL, performance-counter and management-controller
-   interfaces, including permissions and measurement boundaries. \\
-\bottomrule
+   interfaces, including permissions and measurement boundaries. \\[3pt]
+\tabbottomrule
 \end{tabularx}
+\caption{Minimum platform record for an inference result.}
+\label{tab:platform-record}
 \end{table}

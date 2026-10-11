@@ -17,28 +17,34 @@ listed in \tabref{tab:cresco8-node-classes}:
 \centering
 \footnotesize
 \tabsetup
+\begin{tabularx}{\textwidth}{P{1.55cm}P{1.05cm}P{1.45cm}P{2.65cm}Y}
+\headrow
+\headcell{Class} & \headcell{Nodes} & \headcell{CPU cores}\newline\headcell{per node}
+ & \headcell{Memory}\newline\headcell{per node} & \headcell{Processor or accelerator} \\[3pt]
+\tabheadrule
+\tabstripeRow
+CPU
+ & 760 & 128 & 512\,GB DDR5
+ & 2$\times$ Xeon Platinum 8592+ \\[3pt]
+
+\tabrowsep
+\tabplainRow
+CPU--HBM
+ & 15 & 112 & 1,024\,GB DDR5\newline + 128\,GB HBM
+ & 2$\times$ Xeon CPU Max 9480 \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+GPU
+ & 17 & 128 & 512\,GB DDR5\newline + accelerator HBM
+ & 2$\times$ Xeon Platinum 8592+ and
+   4$\times$ Intel Data Center GPU Max 1550 \\[3pt]
+\tabbottomrule
+\end{tabularx}
 \caption{CRESCO8 node classes documented by ENEAGRID.  Counts describe a
 dated operational document, not a permanent scheduler inventory
 ~\cite{cresco8doc}.}
 \label{tab:cresco8-node-classes}
-\begin{tabularx}{\textwidth}{@{}P{1.55cm}P{1.05cm}P{1.45cm}P{2.65cm}Y@{}}
-\toprule
-\headrow
-\textbf{Class} & \textbf{Nodes} & \textbf{CPU cores}\newline\textbf{per node}
- & \textbf{Memory}\newline\textbf{per node} & \textbf{Processor or accelerator} \\
-\midrule
-CPU
- & 760 & 128 & 512\,GB DDR5
- & 2$\times$ Xeon Platinum 8592+ \\
-CPU--HBM
- & 15 & 112 & 1,024\,GB DDR5\newline + 128\,GB HBM
- & 2$\times$ Xeon CPU Max 9480 \\
-GPU
- & 17 & 128 & 512\,GB DDR5\newline + accelerator HBM
- & 2$\times$ Xeon Platinum 8592+ and
-   4$\times$ Intel Data Center GPU Max 1550 \\
-\bottomrule
-\end{tabularx}
 \end{table}
 
 The same page calls this a 793-node system, although the listed classes

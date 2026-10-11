@@ -22,41 +22,49 @@ the Cache-mode question remains executable on the observed nodes.
 \centering
 \small
 \tabsetup
-\caption{Provisional research questions and testable predictions.  The
-predictions are expectations, not conclusions.}
-\label{tab:research-questions}
-\begin{tabularx}{\textwidth}{@{}lYY@{}}
-\toprule
+\begin{tabularx}{\textwidth}{lYY}
 \headrow
- & \textbf{Question} & \textbf{Prediction} \\
-\midrule
+\headcell{ID} & \headcell{Question} & \headcell{Prediction} \\[3pt]
+\tabheadrule
+\tabstripeRow
 RQ1
  & Which inference phases and memory objects demand HBM bandwidth, DDR
    bandwidth, or capacity on one Max 9480 socket?
  & Weight traffic dominates some low-batch decode regimes, while KV
    traffic grows with context and concurrency.  Neither tier's STREAM
-   ratio alone predicts end-to-end performance. \\
+   ratio alone predicts end-to-end performance. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 RQ2
  & In Flat mode, can concurrent HBM and DDR access outperform the best
    single-tier or static split policy at the same total core count?
  & A split helps only when work in both tiers overlaps enough to offset
    scheduling and reduction overhead; the result depends on traffic,
-   bandwidth saturation and thread allocation. \\
+   bandwidth saturation and thread allocation. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
 RQ3
  & How should weights and KV blocks be placed as model size, context,
    concurrency and HBM capacity change?
  & Keeping repeatedly streamed weights in HBM may beat placing the
    entire KV pool there; the best allocation can change as KV traffic
-   grows.  Adaptive placement must beat tuned static baselines. \\
-\addlinespace[2pt]
+   grows.  Adaptive placement must beat tuned static baselines. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 RQ4
  & How does hardware Cache mode compare with Flat-mode policies for
    representative working sets, if both modes are available?
  & Cache mode may help when reuse fits its effective cache capacity;
    Flat mode may do better when software can divide bandwidth and
-   capacity explicitly.  No ordering is assumed. \\
-\bottomrule
+   capacity explicitly.  No ordering is assumed. \\[3pt]
+\tabbottomrule
 \end{tabularx}
+\caption{Provisional research questions and testable predictions.  The
+predictions are expectations, not conclusions.}
+\label{tab:research-questions}
 \end{table}
 
 The current vLLM CPU-tiered-KV branch is an experimental implementation
@@ -172,39 +180,54 @@ factors that survive that test and states what each one is for.
 \centering
 \small
 \tabsetup
-\caption{Factors and the role of each in the experimental design.}
-\label{tab:experimental-factors}
-\begin{tabularx}{\textwidth}{@{}lYY@{}}
-\toprule
+\begin{tabularx}{\textwidth}{P{2.75cm}YY}
 \headrow
-\textbf{Factor} & \textbf{Primary levels} & \textbf{Purpose} \\
-\midrule
+\headcell{Factor} & \headcell{Primary levels} & \headcell{Purpose} \\[3pt]
+\tabheadrule
+\tabstripeRow
 Memory placement
  & Local HBM, local DDR5, weights-first, KV-first and mixed KV
- & Isolate tier effects and test use of both bandwidth sources. \\
+ & Isolate tier effects and test use of both bandwidth sources. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 Working-set regime
  & Comfortably below, near, and above usable local HBM capacity
  & Locate a capacity boundary using measured resident memory rather than
-   parameter count alone. \\
+   parameter count alone. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
 Precision
  & BF16 reference and at least one practical quantized weight format;
    KV precision recorded independently
  & Test whether reduced traffic, packing and kernel coverage change the
-   HBM benefit. \\
+   HBM benefit. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 Workload shape
  & Short and long prompt; short and sustained generation; low and
    moderate batch/concurrency
- & Separate prefill, weight-streaming decode and KV-dominant regimes. \\
+ & Separate prefill, weight-streaming decode and KV-dominant regimes. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
 Core/topology
  & Partial and full local socket; fixed total cores with varied HBM/DDR
    attention split; SNC4 only if available
- & Identify saturation, overlap and scheduling overhead. \\
+ & Identify saturation, overlap and scheduling overhead. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 Cache state
  & Cold-start/model-load and warmed steady state reported separately
  & Prevent file I/O or page-cache state from contaminating inference
-   measurements. \\
-\bottomrule
+   measurements. \\[3pt]
+\tabbottomrule
 \end{tabularx}
+\caption{Factors and the role of each in the experimental design.}
+\label{tab:experimental-factors}
 \end{table}
 
 Models should be selected by memory regime and architecture rather than
@@ -318,39 +341,51 @@ have addressed.
 \centering
 \small
 \tabsetup
-\caption{Main validity threats and design responses.}
-\label{tab:validity}
-\begin{tabularx}{\textwidth}{@{}lYY@{}}
-\toprule
+\begin{tabularx}{\textwidth}{P{2.75cm}YY}
 \headrow
-\textbf{Validity} & \textbf{Threat} & \textbf{Response} \\
-\midrule
+\headcell{Validity} & \headcell{Threat} & \headcell{Response} \\[3pt]
+\tabheadrule
+\tabstripeRow
 Internal
  & Frequency drift, first touch, page migration, remote access, warm
    cache state or shared-node interference is mistaken for an HBM effect.
  & Exclusive nodes, paired order, explicit binding, residency checks and
-   frequency/traffic measurements. \\
+   frequency/traffic measurements. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 Construct
  & STREAM is treated as LLM bandwidth; file size as live memory; average
    TPOT as tail latency; RAPL as whole-node energy.
  & Define each metric and boundary, measure the live set, and use
-   counters only to test a stated mechanism. \\
+   counters only to test a stated mechanism. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
 External
  & One model, precision, node or runtime is generalized to CPU inference
    as a whole.
  & Cover distinct memory regimes, repeat on multiple nodes, and state the
-   platform/runtime boundary of every conclusion. \\
+   platform/runtime boundary of every conclusion. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 Statistical conclusion
  & Few repetitions, selected best runs or unreported failures inflate an
    effect.
  & Retain raw samples, predeclare primary comparisons and report
-   uncertainty with absolute values. \\
+   uncertainty with absolute values. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
 Reproducibility
  & Modules, firmware, models and scheduler inventory change over time.
  & Archive immutable source/model revisions, build metadata, commands
-   and dated system manifests. \\
-\bottomrule
+   and dated system manifests. \\[3pt]
+\tabbottomrule
 \end{tabularx}
+\caption{Main validity threats and design responses.}
+\label{tab:validity}
 \end{table}
 
 

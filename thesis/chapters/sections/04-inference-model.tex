@@ -313,43 +313,45 @@ comparison is expected to carry all three.
 \subsubsection{Numbers that are results}
 
 {\small\tabsetup
-\begin{xltabular}{\textwidth}{@{}P{2.6cm}P{4.1cm}Y@{}}
+\begin{xltabular}{\textwidth}{P{2.6cm}P{4.1cm}Y}
+\headrow
+\headcell{Metric} & \headcell{What it is} & \headcell{Why it is here, and how to read it} \\[3pt]
+\tabheadrule
+\endfirsthead
+\headrow
+\headcell{Metric} & \headcell{What it is} & \headcell{Why it is here, and how to read it} \\[3pt]
+\tabheadrule
+\endhead
+\tabrowsep
+\multicolumn{3}{r@{}}{\footnotesize\itshape Table~\ref{tab:metrics-results}, continued on the next page}\\
+\endfoot
+\tabbottomrule
 \caption{Performance metrics: the quantities a claim may be made about.
 A metric whose movement cannot be interpreted is not worth collecting,
 so the right-hand column is the one to read first.}
 \label{tab:metrics-results}\\
-\toprule
-\headrow
-\textbf{Metric} & \textbf{What it is} & \textbf{Why it is here, and how to read it} \\
-\midrule
-\endfirsthead
-\multicolumn{3}{@{}l}{\footnotesize\itshape Table~\ref{tab:metrics-results}, continued}\\[2pt]
-\toprule
-\headrow
-\textbf{Metric} & \textbf{What it is} & \textbf{Why it is here, and how to read it} \\
-\midrule
-\endhead
-\midrule
-\multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
-\endfoot
-\bottomrule
 \endlastfoot
+\tabstripeRow
 \textbf{TTFT}\newline{\footnotesize time to first token}
 & Elapsed time from an accepted request to the first emitted token.
 & The user-visible boundary dominated by prompt processing, but also
   including the first decode step and any runtime overhead inside the
   declared boundary.  \emph{Reading it:} report it with prompt length
   and with the runtime's direct prompt-evaluation timer; do not label it
-  as pure prefill time. \\
-\addlinespace[2pt]
+  as pure prefill time. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 \textbf{ITL}\newline{\footnotesize inter-token latency}
 & The gap between consecutive emitted tokens, recorded per token.
 & The decode metric, and where \(H_{1a}\) predicts the HBM effect will
   appear.  \emph{Reading it:} report the \textbf{distribution}
   (median, p95, p99), never a bare mean.  A stable median with a heavy
   tail points to allocation or scheduling interference, not to memory
-  bandwidth. \\
-\addlinespace[2pt]
+  bandwidth. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
 \textbf{TPOT}\newline{\footnotesize time per output token}
 & Mean time between output tokens for $O\geq 2$,
   \((T_{\mathrm{E2E}} - T_{\mathrm{TTFT}})/(O-1)\).
@@ -357,22 +359,28 @@ so the right-hand column is the one to read first.}
   reports~\cite{zhang2026cacheresident}.  \emph{Reading it:} good for
   comparison against published numbers, but it hides variance by
   construction, so it never appears without the ITL distribution beside
-  it. \\
-\addlinespace[2pt]
+  it. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 \textbf{Decode throughput}
 & Output tokens per second, per sequence and aggregated over the batch.
 & The form most readers expect and most CPU-inference papers publish.
   \emph{Reading it:} the reciprocal of TPOT, carrying no information
-  TPOT does not; reported for comparability rather than for analysis. \\
-\addlinespace[2pt]
+  TPOT does not; reported for comparability rather than for analysis. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
 \textbf{Prefill throughput}
 & Prompt tokens per second, \(S/T_{\mathrm{prefill}}\), using the
   runtime's phase timer rather than TTFT.
 & Separates processing rate from prompt length, keeping runs with
   different prompts comparable.  \emph{Reading it:} interpret changes
   against prompt length, achieved bandwidth and matrix-engine activity;
-  no flat region is assumed in advance. \\
-\addlinespace[2pt]
+  no flat region is assumed in advance. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 \textbf{Tier ratio}\newline{\footnotesize \(R_{\text{phase}}\)}
 & Per-phase ratio of matched DDR and HBM timings, \eqnref{eq:ratio}.
 & \textbf{The headline result of the thesis.}  Everything else exists
@@ -380,7 +388,7 @@ so the right-hand column is the one to read first.}
   \(R_{\text{decode}} > R_{\text{prefill}}\) supports \(H_{1a}\); a
   \(R_{\text{decode}}\) below the STREAM bandwidth ratio supports
   \(H_{1b}\).  A value near \(1.0\) is \emph{a real finding}, not a
-  failed experiment. \\
+  failed experiment. \\[3pt]
 \end{xltabular}}
 
 
@@ -406,37 +414,37 @@ when an effect turns out smaller than expected.
 
 
 {\small\tabsetup
-\begin{xltabular}{\textwidth}{@{}P{2.6cm}P{4.1cm}Y@{}}
+\begin{xltabular}{\textwidth}{P{2.6cm}P{4.1cm}Y}
+\headrow
+\headcell{Measurement} & \headcell{What it is} & \headcell{Why it is here, and how to read it} \\[3pt]
+\tabheadrule
+\endfirsthead
+\headrow
+\headcell{Measurement} & \headcell{What it is} & \headcell{Why it is here, and how to read it} \\[3pt]
+\tabheadrule
+\endhead
+\tabrowsep
+\multicolumn{3}{r@{}}{\footnotesize\itshape Table~\ref{tab:metrics-explain}, continued on the next page}\\
+\endfoot
+\tabbottomrule
 \caption{Explanatory measurements.  None of these is a performance
 claim.  Their job is to say why the numbers in
 \tabref{tab:metrics-results} came out as they did, and, when the effect
 is small, to separate \emph{the tier does not matter} from \emph{the
 program never used the tier}.}
 \label{tab:metrics-explain}\\
-\toprule
-\headrow
-\textbf{Measurement} & \textbf{What it is} & \textbf{Why it is here, and how to read it} \\
-\midrule
-\endfirsthead
-\multicolumn{3}{@{}l}{\footnotesize\itshape Table~\ref{tab:metrics-explain}, continued}\\[2pt]
-\toprule
-\headrow
-\textbf{Measurement} & \textbf{What it is} & \textbf{Why it is here, and how to read it} \\
-\midrule
-\endhead
-\midrule
-\multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
-\endfoot
-\bottomrule
 \endlastfoot
+\tabstripeRow
 \textbf{Achieved bandwidth}
 & Bytes per second actually moved to and from each tier during a phase,
   taken from memory-controller counters.
 & \textbf{The most important explanatory number in the study};
   without it a null result cannot be diagnosed at all.
   \emph{Reading it:} compare against the STREAM figure measured on the
-  same node, never against a published one. \\
-\addlinespace[2pt]
+  same node, never against a published one. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 \textbf{Bandwidth utilisation}
 & Achieved bandwidth as a fraction of measured STREAM,
   \eqnref{eq:utilisation}.
@@ -444,28 +452,34 @@ program never used the tier}.}
   \emph{Reading it:} a high tier ratio with high utilisation is
   consistent with bandwidth limitation.  A low tier ratio with
   \textbf{low} utilisation leaves latency, insufficient concurrency and
-  runtime overhead as competing explanations. \\
-\addlinespace[2pt]
+  runtime overhead as competing explanations. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
 \textbf{Remote traffic}
 & Bytes crossing UPI to the other socket.
 & The primary comparison is defined on one socket, so remote traffic
   means it was not.  \emph{Reading it:} expected near zero; anything
   else is a placement failure, and the run is re-examined rather than
-  reported. \\
-\addlinespace[2pt]
+  reported. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 \textbf{Peak resident set}
 & Maximum resident memory, decomposed into weights, KV state and
   workspace per \eqnref{eq:live}.
 & Locates the capacity boundary the second research question is about.
   \emph{Reading it:} compared against \emph{usable} local HBM on the
-  allocated node, which is smaller than the nominal 64\,GB. \\
-\addlinespace[2pt]
+  allocated node, which is smaller than the nominal 64\,GB. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
 \textbf{Frequency and power}
 & Sustained socket clock, package power and throttling state over the
   measured interval.
 & Guards against reporting a thermal effect as a placement effect.
   \emph{Reading it:} must be equivalent across the two placements being
-  compared; if it is not, the comparison is confounded. \\
+  compared; if it is not, the comparison is confounded. \\[3pt]
 \end{xltabular}}
 
 
@@ -492,59 +506,65 @@ or inconvenient result.  Insufficient precision leads to more sampling
 or a wider reported uncertainty interval.
 
 {\small\tabsetup
-\begin{xltabular}{\textwidth}{@{}P{2.55cm}YP{4.3cm}@{}}
+\begin{xltabular}{\textwidth}{P{2.55cm}YP{4.3cm}}
+\headrow
+\headcell{Check} & \headcell{What it establishes} &
+\headcell{Passing condition} \\[3pt]
+\tabheadrule
+\endfirsthead
+\headrow
+\headcell{Check} & \headcell{What it establishes} &
+\headcell{Passing condition} \\[3pt]
+\tabheadrule
+\endhead
+\tabrowsep
+\multicolumn{3}{r@{}}{\footnotesize\itshape Table~\ref{tab:metrics-validity}, continued on the next page}\\
+\endfoot
+\tabbottomrule
 \caption{Run-level validity checks and the study-level precision
 criterion.  Exclusion rules and the precision target are fixed before
 the primary comparison is examined.}
 \label{tab:metrics-validity}\\
-\toprule
-\headrow
-\textbf{Check} & \textbf{What it establishes} &
-\textbf{Passing condition} \\
-\midrule
-\endfirsthead
-\multicolumn{3}{@{}l}{\footnotesize\itshape Table~\ref{tab:metrics-validity}, continued}\\[2pt]
-\toprule
-\headrow
-\textbf{Check} & \textbf{What it establishes} &
-\textbf{Passing condition} \\
-\midrule
-\endhead
-\midrule
-\multicolumn{3}{r@{}}{\footnotesize\itshape continued on the next page}\\
-\endfoot
-\bottomrule
 \endlastfoot
+\tabstripeRow
 \textbf{Page residency}
 & That the live set is where the command line said it should be.  A
   memory policy states an intention; only a page count states an
   outcome.
 & The overwhelming majority of the process's resident pages sit on the
   intended NUMA node, with the threshold fixed before the campaign and
-  the shortfall reported. \\
-\addlinespace[1pt]
+  the shortfall reported. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 \textbf{Thread binding}
 & That the cores executing the work are local to the memory holding it.
 & Observed CPU affinity matches the requested binding for every worker
-  thread. \\
-\addlinespace[1pt]
+  thread. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
 \textbf{Output equivalence}
 & That placement changed the speed and nothing else.
 & For a fixed seed and identical inputs, the generated token sequence
   is identical across tiers.  A divergence indicates a defect, not a
-  finding. \\
-\addlinespace[1pt]
+  finding. \\[3pt]
+
+\tabrowsep
+\tabplainRow
 \textbf{Study precision}
 & Whether the paired tier effect is estimated precisely enough to answer
   the research question.
 & A target confidence-interval width is fixed from pilot variability.
   If it is not reached, collect more independent pairs or report the wider
-  interval; do not delete samples because the effect is small or noisy. \\
-\addlinespace[1pt]
+  interval; do not delete samples because the effect is small or noisy. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
 \textbf{Thermal state}
 & That the node was in a comparable operating condition for both arms.
 & No throttling events, and equivalent sustained frequency across the
-  compared placements. \\
+  compared placements. \\[3pt]
 \end{xltabular}}
 
 
