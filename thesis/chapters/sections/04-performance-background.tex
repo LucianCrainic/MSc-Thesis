@@ -1,0 +1,345 @@
+\section{Memory requirements and performance models}
+\label{sec:performance-background}
+\label{sec:memory-requirements}
+
+\subsection{Weight, KV and workspace capacity}
+
+\tabref{tab:inference-data} compares the main data classes.  Their
+lifetimes explain why process memory does not simply follow a request's
+context length.  Persistent weights, reusable KV pools and temporary
+workspaces can coexist even when only part of the pool is populated.
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\begin{tabularx}{\textwidth}{P{2.1cm}YYY}
+\headrow
+\headcell{Property} & \headcell{Weights} & \headcell{KV state} & \headcell{Temporary data} \\[3pt]
+\tabheadrule
+\tabstripeRow
+Origin & Learned parameters & Per-layer keys and values computed from inputs & Intermediate results and kernel scratch space \\[3pt]
+\tabrowsep
+\tabplainRow
+Lifetime & Model residency, often many requests & Needed history; pool can outlive requests & Operation or phase; allocation can be reused \\[3pt]
+\tabrowsep
+\tabstripeRow
+Modification & Normally read-only after preparation & New entries written; history read & Written and consumed during computation \\[3pt]
+\tabrowsep
+\tabplainRow
+Sharing & Shared by requests using the same representation & Per sequence logically; compatible prefixes can share blocks & Usually tied to current execution; buffers can be reused \\[3pt]
+\tabrowsep
+\tabstripeRow
+Size drivers & Parameter count, types, format, packing, copies & Layers, KV heads, head size, retained positions, type, pool policy & Batch, prompt chunk, operator, implementation \\[3pt]
+\tabrowsep
+\tabplainRow
+Access & Dense transforms reuse matrix tiles; embeddings select rows & Append state and read permitted history & Short-lived reads and writes; fusion can reduce materialization \\[3pt]
+\tabbottomrule
+\end{tabularx}
+\caption{Origins, storage roles and access behavior of inference data.
+A logical lifetime does not imply immediate deallocation or page eviction.}
+\label{tab:inference-data}
+\end{table}
+\FloatBarrier
+
+For \(N\) distinct stored parameters, uniform payload size \(s_W\)
+bytes per parameter, and representation overhead \(M_{\mathrm{format}}\),
+a weight representation occupies approximately
+\begin{equation}
+\label{eq:weight-payload}
+ M_W \approx Ns_W + M_{\mathrm{format}}.
+\end{equation}
+\eqcaption{Weight representation estimate.  Format overhead includes
+quantization metadata, alignment and padding; additional runtime copies
+are accounted for separately.}
+
+With mixed tensor types, the payload term becomes
+\(\sum_j N_j s_j\), counting shared storage once.  Packing overhead must
+be included in the representation it affects.  A training checkpoint
+may additionally contain optimizer state that inference does not need,
+so checkpoint bytes need not equal the inference weight payload.
+
+As an illustrative example, exactly \(8\times10^9\) parameters stored
+in BF16 require \(16\times10^9\) payload bytes: 16\,GB or approximately
+14.90\,GiB.  Four-bit storage gives an ideal payload of 4\,GB
+(3.73\,GiB).  If that illustrative format also stores one two-byte scale
+per 32 weights, the scales add 0.5\,GB, giving 4.5\,GB (4.19\,GiB)
+before other metadata and padding.  This is an example format, not a
+size claim for every four-bit model.  A retained second copy of the
+BF16 representation would add another 16\,GB regardless of the file's
+size.  Here GB denotes \(10^9\) bytes and GiB denotes \(2^{30}\) bytes;
+KiB similarly denotes \(2^{10}\) bytes.
+
+For \(L\) layers with uniform full-history attention, \(n_{\mathrm{KV}}\)
+KV heads per layer, head dimension \(d_h\), and \(s_{\mathrm{KV}}\)
+bytes per stored scalar, the live unshared KV payload is
+\begin{equation}
+\label{eq:kv-live-payload}
+ M_{\mathrm{KV,live}}=
+ 2L n_{\mathrm{KV}}d_h s_{\mathrm{KV}}\sum_i S_i.
+\end{equation}
+\eqcaption{Live KV payload for independent, unshared sequences.  The
+factor two counts keys and values; \(S_i\) is the number of evaluated
+positions whose state is retained for sequence \(i\).}
+
+The dimensions are layers times heads times scalars per head times
+bytes per scalar times positions, hence bytes.  \(S_i\) counts cached
+positions, not automatically every emitted token, since the final
+output may not have been evaluated.  Nonuniform layers require summing
+per-layer payloads; bounded histories, shared prefixes, quantization
+metadata and padding require corresponding adjustments.  Occupied block
+capacity rounds each independently allocated length to block boundaries.
+Reserved pool capacity can be larger still.
+
+For an illustrative 32-layer model with eight KV heads, \(d_h=128\)
+and two-byte entries, each retained position occupies
+\(2\times32\times8\times128\times2=131{,}072\) bytes, or 128\,KiB.
+An 8{,}192-position history therefore holds 1\,GiB of live KV payload.
+Thirty-two independent sequences of that length hold 32\,GiB.
+Replacing eight KV heads with 32, while keeping the other assumptions,
+multiplies these sizes by four; using one KV head divides them by eight.
+The examples isolate architecture and workload effects, without assuming
+a particular named model or allocator.
+
+A capacity budget must include allocations that coexist:
+\begin{equation}
+\label{eq:inference-allocation-budget}
+ M_{\mathrm{allocated}} \approx M_W+M_{\mathrm{copies}}+
+ M_{\mathrm{KV,allocated}}+M_{\mathrm{workspace}}+M_{\mathrm{other}}.
+\end{equation}
+\eqcaption{A simultaneous allocation budget.  KV allocation includes
+its allocated pool or buffers, so live KV payload must not be added a
+second time.  Other storage includes runtime metadata and allocator overhead.}
+
+Combining the illustrative BF16 weights with the 32 unshared histories
+gives about 46.90\,GiB of weight and live-KV payload before workspace and
+allocation overhead.  A reserved pool larger than the live state raises
+the allocation budget.  Temporary conversion buffers can instead make
+loading the peak-memory interval.  The sum describes allocated storage,
+not necessarily resident pages or controller traffic; neither logical
+payload formulas nor process RSS alone identify all these components.
+
+\subsection{Reuse and access traffic}
+
+For the dense operation in \eqnref{eq:weights-activations}, there are
+approximately \(2m d_{\mathrm{in}}d_{\mathrm{out}}\) floating-point
+operations.  If its weight matrix is fetched once across the memory
+boundary, weight traffic is \(s_W d_{\mathrm{in}}d_{\mathrm{out}}\)
+bytes.  Neglecting all other traffic then gives the illustrative ratio
+\(2m/s_W\) FLOP/byte.  It is a weight-only estimate: input and output
+traffic, packing, cache reuse between evaluations and repeated tile
+loads determine the actual arithmetic intensity.  Quantized kernels
+also require a suitable operation-count convention.
+
+Prefill and batches with several evaluated positions can reuse a weight
+tile across activation rows.  Low-batch decode offers less of this
+reuse, while longer histories increase attention's KV reads.  Distinct
+sequences generally access distinct histories, although grouped heads,
+shared prefixes and kernel tiling can allow further reuse.  Temporary
+buffers can contribute significant traffic when intermediate results
+are materialized.  Neither weights nor KV state should therefore be
+declared universally dominant: the relevant balance depends on the
+model, representation, phase, workload and memory boundary.
+
+An estimated logical read of \(D\) bytes is not a measurement of
+main-memory traffic.  Cache hits, writeback, prefetching and transfers
+between locality domains alter the observed byte counts.  If some data
+resides in HBM and some in DDR, their separate traffic and available
+paths must be considered.  A single bandwidth ceiling cannot simply
+be applied to the sum of both tiers' capacities.  Simultaneous transfers
+may overlap, but they can also share compute resources or interconnects.
+Migration adds its own reads, writes, synchronization and possible
+capacity peak; a benefit must cover these costs over the interval in
+which the new placement is used.
+
+\subsection{Compute throughput and practical ceilings}
+
+\textbf{Compute throughput} counts operations per unit time.  Floating-point
+rates use FLOP/s; a multiplication and addition count as two operations,
+including when fused into one instruction.  Peak throughput depends on
+active cores, clock frequency, supported instructions and precision.
+It is distinct from inference throughput in tokens/s, since one token
+requires many operations and accesses.
+
+Peak specifications describe ideal conditions.  Microbenchmarks can
+establish practical compute and bandwidth ceilings for a chosen
+configuration, while application measurements show how much of that
+capability is used~\cite{nerscroofline2026}.  The capacity, latency and
+bandwidth distinctions in \secref{sec:cpu-memory-systems} remain important:
+low bandwidth utilization alone does not establish a compute bottleneck.
+
+\subsection{Bandwidth requires concurrency}
+\label{sec:littles-law}
+
+High bandwidth requires enough independent transfers to keep memory
+busy.  Little's law relates sustained bandwidth \(B\), mean access
+latency \(\tau\), and mean bytes in flight \(C\):
+\begin{equation}
+\label{eq:little}
+ C=B\tau.
+\end{equation}
+\eqcaption{Mean memory concurrency required in steady state.  Bytes/s
+multiplied by seconds gives bytes in flight.}
+
+Dividing \(C\) by cache-line size gives the corresponding outstanding
+line count.  Finite per-core tracking resources limit how many misses
+can overlap.  More cores, independent software accesses and prefetching
+can supply additional requests, subject to those limits.  Use loaded
+latency: queueing near saturation can raise it above idle latency, so an
+idle measurement gives only an optimistic concurrency requirement.
+Regular streams can expose this parallelism; dependent load chains may
+not.  \secref{sec:platform-concurrency} applies the relationship to the
+experimental platform.  This memory-request concurrency differs from
+both active inference requests and execution-batch size.
+
+\subsection{Reading a Roofline plot}
+\label{sec:roofline}
+
+The Roofline model relates a kernel's operation count to its data
+movement~\cite{williams2009roofline}.  Let \(F\) be the number of
+floating-point operations and \(D\) the bytes read and written across
+the memory boundary being analysed.  Their ratio is the
+\textbf{arithmetic intensity}:
+
+\begin{equation}
+\label{eq:arithmetic-intensity}
+  I = \frac{F}{D}
+  \qquad \text{[FLOP/byte]}.
+\end{equation}
+\eqcaption{Arithmetic intensity: the amount of computation performed
+per byte transferred.}
+
+For a main-memory Roofline, \(D\) counts traffic between main memory and
+the cache hierarchy, rather than every access issued by the processor.
+Reusing data in cache can reduce this traffic and increase \(I\).
+If the computation takes time \(t\), its measured compute throughput is
+\(P=F/t\), and its achieved bandwidth at that boundary is \(D/t\).
+
+With a compute ceiling \(P_{\max}\) and bandwidth ceiling
+\(B_{\max}\), the model gives
+
+\begin{equation}
+\label{eq:roofline}
+  P \leq \min\!\left(P_{\max},\, B_{\max} I\right).
+\end{equation}
+\eqcaption{The Roofline bound: attainable throughput is limited by
+both the processor's arithmetic rate and the supply of data.}
+
+\figref{fig:roofline} plots this bound on logarithmic axes.  The
+sloping part is the bandwidth limit \(B_{\max}I\); the horizontal
+part is the compute limit \(P_{\max}\).  They meet at the
+\textbf{ridge point}, whose intensity is
+\(I_{\mathrm{ridge}}=P_{\max}/B_{\max}\).
+
+\begin{figure}[htbp]
+\centering
+\begingroup
+\definecolor{roofink}{HTML}{263445}
+\definecolor{roofblue}{HTML}{365D85}
+\colorlet{roofaccent}{sapred}
+\definecolor{roofborder}{HTML}{CBD5DF}
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\small\sffamily, text=roofink,
+  axis/.style={-{Stealth[length=5pt,width=4pt]},
+               draw=roofink!80, line width=0.8pt},
+  note/.style={font=\footnotesize\sffamily, align=center},
+  card/.style={draw=roofborder, fill=roofink!3, rounded corners=4pt,
+               line width=0.65pt, inner xsep=7pt, inner ysep=7pt,
+               text width=4.3cm, minimum height=2.5cm, align=left,
+               font=\footnotesize\sffamily}
+]
+  % x = 3 log10(I / 0.1); y = 1.5 log10(P / 10).
+  % Illustrative ceilings: 100 GB/s and 1000 GFLOP/s; ridge at 10 FLOP/byte.
+  \fill[roofblue!7] (0,0) -- (6,3) -- (6,0) -- cycle;
+  \fill[roofaccent!7] (6,0) rectangle (9,3);
+  \foreach \x in {3,6,9}
+    \draw[roofborder, line width=0.4pt] (\x,0) -- (\x,3.35);
+  \foreach \y in {1.5,3}
+    \draw[roofborder, line width=0.4pt] (0,\y) -- (9,\y);
+
+  \draw[axis] (0,0) -- (9.45,0);
+  \draw[axis] (0,0) -- (0,3.8);
+  \foreach \x/\value in {0/0.1,3/1,6/10,9/100}
+    \draw[roofink!70] (\x,0) -- (\x,-0.08)
+      node[below, font=\footnotesize\sffamily] {\value};
+  \foreach \y/\value in {0/10,1.5/100,3/{1{,}000}}
+    \draw[roofink!70] (0,\y) -- (-0.08,\y)
+      node[left, font=\footnotesize\sffamily] {$\value$};
+  \node[note, rotate=90] at (-1.15,1.75)
+    {Compute throughput $P$ [GFLOP/s]};
+  \node[note] at (4.5,-0.65)
+    {Arithmetic intensity $I$ [FLOP/byte]};
+
+  \draw[roofaccent!55, densely dashed, line width=0.7pt]
+    (0,3) -- (6,3);
+  \draw[roofblue, line width=1.9pt] (0,0) -- (6,3)
+    node[pos=0.58, sloped, above=4pt, note, text=roofblue]
+      {Bandwidth limit: $B_{\max} I$};
+  \draw[roofaccent, line width=1.9pt] (6,3) -- (9,3)
+    node[midway, above=4pt, note, text=roofaccent]
+      {Compute limit: $P_{\max}$};
+
+  \draw[roofink!60, densely dashed] (6,0) -- (6,3);
+  \fill[roofink] (6,3) circle (2.3pt);
+  \node[note, anchor=south] (ridge) at (5.3,3.6)
+    {Ridge point: $I_{\mathrm{ridge}}=P_{\max}/B_{\max}$};
+  \draw[roofink!65, -{Stealth[length=4pt,width=3pt]}]
+    (ridge.south) -- (6,3.08);
+
+  \node[note, text=roofblue, font=\small\sffamily\bfseries]
+    at (2.65,4.35) {Memory-bound region};
+  \node[note, text=roofaccent, font=\small\sffamily\bfseries]
+    at (7.6,4.35) {Compute-bound region};
+
+  % Points are illustrative measurements below the roof.
+  \draw[roofink!60, densely dashed] (3,1.05) -- (3,1.5);
+  \fill[roofink] (3,1.05) circle (2.6pt);
+  \node[note, anchor=north west] at (3.1,1.0) {Kernel A};
+  \draw[roofink!60, densely dashed] (7.8,2.6) -- (7.8,3);
+  \fill[roofink] (7.8,2.6) circle (2.6pt);
+  \node[note, anchor=north] at (7.8,2.45) {Kernel B};
+
+  \node[card, draw=roofblue!45, fill=roofblue!4] at (2.2,-2.3)
+    {\textbf{Left of the ridge}\\
+     Limited by data movement.\\
+     More bandwidth lifts the roof.\\
+     Reuse moves a kernel right.};
+  \node[card, draw=roofaccent!45, fill=roofaccent!4] at (7.2,-2.3)
+    {\textbf{Right of the ridge}\\
+     Limited by arithmetic.\\
+     Better use of compute units\\
+     brings a kernel closer to the roof.};
+\end{tikzpicture}%
+}
+\endgroup
+\caption{A Roofline plot with illustrative ceilings of 100\,GB/s and
+1{,}000\,GFLOP/s, giving a ridge at 10\,FLOP/byte.  Both axes are
+logarithmic.  The sloping segment is the bandwidth limit and the
+horizontal segment is the compute limit.  The roof is an upper
+bound; the dots represent example kernel measurements below it, and the
+dashed vertical segments show their gap to the bound.  This is a
+conceptual example, not a measurement of the thesis platform.}
+\label{fig:roofline}
+\end{figure}
+
+Left of the ridge, the model identifies a \textbf{memory-bound}, more
+specifically bandwidth-bound, region.  Increasing bandwidth raises the
+bound, while reusing each transferred byte more often moves a kernel to
+the right.  Right of the ridge, the bound is \textbf{compute-bound};
+additional bandwidth alone does not raise it.  For example, with the
+figure's ceilings, intensity \(1\) limits throughput to 100\,GFLOP/s,
+whereas intensity \(20\) permits at most 1{,}000\,GFLOP/s.
+
+A point below the roof does not establish the cause of the gap.
+Latency, limited parallelism, inefficient instructions and runtime overhead
+can all reduce performance.  Compare kernels with ceilings for the same
+cores, precision and memory boundary~\cite{nerscroofline2026}; integer
+kernels require matching integer-operation counts and ceilings, not FLOP/s.
+
+Prefill's weight reuse and low-batch decode's smaller reuse motivate
+separate phase analysis.  Their actual intensity depends on batching,
+history length, representation and kernels~\cite{na2024llmcpu}.
+Roofline describes numerical work; request timing also includes scheduling
+and other runtime overhead.
+\FloatBarrier

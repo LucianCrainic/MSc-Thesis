@@ -1,0 +1,109 @@
+%======================================================================
+%  Common request and engine performance measurements
+%======================================================================
+
+\section{Performance metrics}
+\label{sec:metrics}
+
+Latency describes waiting and output pace; throughput describes a
+processing rate.  \tabref{tab:inference-metrics} defines the loading,
+phase and request measurements used to interpret inference~\cite{vllm2026}.
+Their timing boundaries must be specified explicitly.
+
+Comparisons state model, precision, prompt and output lengths, concurrency,
+execution-batch limits and scheduling.  More concurrency can improve
+aggregate throughput while increasing waiting.  The median describes
+typical latency; p95 is the value at or below which 95\% of observations
+fall.  Specify whether observations are requests, per-request averages,
+or token intervals.  Memory footprint and hardware activity help explain
+results; representation changes also require evaluating numerical quality.
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\begin{tabularx}{\textwidth}{P{2.7cm}P{1.6cm}Y}
+\headrow
+\headcell{Metric} & \headcell{Unit} & \headcell{Meaning} \\[3pt]
+\tabheadrule
+\tabstripeRow
+Model loading time
+  & ms or s
+  & Time from starting model preparation to a declared ready state;
+    report whether page population, conversion and packing are included. \\[3pt]
+\tabrowsep
+\tabplainRow
+Time to first token (TTFT)
+  & ms or s
+  & Time from the declared request start to the first output token.
+    Describes the wait before generation becomes visible. \\[3pt]
+\tabrowsep
+\tabstripeRow
+Inter-token latency (ITL)
+  & ms
+  & Time between successive output tokens.  Describes the pace and
+    variability of generation. \\[3pt]
+\tabrowsep
+\tabplainRow
+Time per output token (TPOT)
+  & ms/token
+  & Mean time per output token after the first, within one request.
+    Summarises the generation interval. \\[3pt]
+\tabrowsep
+\tabstripeRow
+End-to-end latency
+  & ms or s
+  & Time from the declared request start to its completion.
+    Describes the wait for the full response. \\[3pt]
+\tabrowsep
+\tabplainRow
+Prefill throughput
+  & tokens/s
+  & Prompt tokens processed per second of prompt evaluation, using a
+    direct phase timer. \\[3pt]
+\tabrowsep
+\tabstripeRow
+Output throughput
+  & tokens/s
+  & Generated tokens per second over a stated interval, for one
+    sequence or aggregated across requests. \\[3pt]
+\tabbottomrule
+\end{tabularx}
+\caption{Common inference performance metrics.  Smaller latency and
+larger throughput indicate better performance under otherwise
+comparable workloads.}
+\label{tab:inference-metrics}
+\end{table}
+\FloatBarrier
+
+For a request producing \(O>1\) tokens, let \(t_1\) and \(t_O\)
+be the times of the first and last output tokens.  Then
+
+\begin{equation}
+\label{eq:tpot}
+  T_{\mathrm{TPOT}} = \frac{t_O-t_1}{O-1}.
+\end{equation}
+\eqcaption{Mean generation time per output token, excluding the first.}
+
+With one token per emission event, TPOT averages a request's ITL
+intervals; streamed chunks instead measure delivery of several tokens~\cite{vllm2026}.
+TPOT is undefined for one-token responses.  Its reciprocal gives the
+post-first-token rate when measured in seconds/token, or
+\(1000/T_{\mathrm{TPOT}}\) for milliseconds/token.  Aggregate throughput
+is not the reciprocal of one request's TPOT; serving rate can also be
+reported in completed requests/s.
+
+TTFT can include queueing, input preparation, prefill and delivery,
+according to the declared client or engine boundary~\cite{agrawal2025evaluating}.
+The first output normally follows prefill, without an extra decode
+evaluation.  Direct phase timers specify whether scheduling, cache
+management, sampling and synchronization are included.  Decode throughput
+counts evaluated positions, whereas output throughput counts emitted
+tokens; ordinary generation produces its first output from prefill logits.
+
+Report model loading and warm-up separately from steady-state inference,
+including readiness and page-population conditions.  Warm-up can involve
+page faults, kernel preparation and initial allocation.  Aggregate output
+throughput divides emitted tokens by a declared observation duration,
+with explicit treatment of warm-up, unfinished requests and interval
+endpoints.  Client and engine timestamps require consistent boundaries.
