@@ -250,7 +250,7 @@ problem as well as a kernel problem~\cite{sheng2023flexgen}.  PagedAttention
 addresses a different failure mode: variable-size KV allocations, fragmentation
 and duplicated cache blocks can exhaust usable capacity before nominal memory
 is full~\cite{kwon2023pagedattention}.  These works motivate the object-level
-pipeline in \secref{sec:inference-pipeline-bottlenecks}; the present study asks
+pipeline in \secref{sec:llm-inference-foundations}; the present study asks
 which of those mechanisms is visible when the compute cores access HBM and DDR
 directly rather than through accelerator offload.
 
