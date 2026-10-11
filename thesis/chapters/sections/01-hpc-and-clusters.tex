@@ -96,15 +96,14 @@ addressing stops.  The dashed line separates the two layouts.  Each compute
 node has its own shared memory address space; reaching another node's memory
 requires communication.  All experiments in this thesis run on \emph{one}
 node, so the interconnect and scheduler provide the surrounding context.
-Author's synthesis.}
+}
 \label{fig:workstation-vs-cluster}
 \end{figure}
 
 \subsection{How a cluster is used}
 
-Access follows a fixed shape, and it is worth stating because it
-constrains the experimental method described in
-\chapref{chap:methodology}.  A user logs
+Access follows a fixed shape that constrains how experiments are
+carried out.  A user logs
 in to a \textbf{login node}, which is shared, modest, and meant for
 editing and compiling rather than for running anything.  Work is then
 submitted to a \textbf{batch scheduler}, which on CRESCO8 is Slurm, as
@@ -139,80 +138,10 @@ increasingly they carry \emph{more than one kind of memory}, which is
 where this thesis begins.
 
 That last point is the reason a cluster appears in a study of language
-model inference at all.  The processor examined here, the Intel Xeon CPU
-Max~9480, is a mainstream server CPU with an unusual property: it has
-high-bandwidth memory in the package alongside ordinary DDR5, and both
-can be addressed by software.  Machines that expose this combination
-are uncommon and are often deployed as HPC systems.  The available route
-to the processor is therefore a cluster allocation even though the
-question itself is about a single socket.
-
-\subsection{What this thesis actually uses}
-
-The funnel narrows quickly, and \tabref{tab:hpc-scope} states where it
-stops.  Of everything above, the experiments use one node from one
-partition, and the primary comparison uses one socket of that node.  The
-interconnect is never on the critical path.  The parallel file system
-matters only for storing model files.  The scheduler matters only
-because it decides which node is obtained and for how long.
-
-\begin{table}[htbp]
-\centering
-\small
-\tabsetup
-\begin{tabularx}{\textwidth}{P{3.05cm}P{3.3cm}Y}
-\headrow
-\headcell{Level} & \headcell{Role in this thesis} & \headcell{Why} \\[3pt]
-\tabheadrule
-\tabstripeRow
-Cluster
-& \textbf{Context only}
-& Provides access to a processor that is otherwise unobtainable, and
-  imposes the queue limits that shape the experiment matrix. \\[3pt]
-
-\tabrowsep
-\tabplainRow
-Interconnect
-& \textbf{Excluded}
-& All experiments are single-node, so network performance never enters
-  a reported measurement. \\[3pt]
-
-\tabrowsep
-\tabstripeRow
-File system
-& \textbf{Support only}
-& Holds model files; excluded from every timing boundary. \\[3pt]
-
-\tabrowsep
-\tabplainRow
-Scheduler
-& \textbf{Method}
-& Determines which node is allocated, which is why the observed node
-  configuration, not the documented one, is what gets reported. \\[3pt]
-
-\tabrowsep
-\tabstripeRow
-Node
-& \textbf{Secondary subject}
-& Two sockets joined by UPI; used for the topology questions, where
-  crossing between sockets is the effect being measured. \\[3pt]
-
-\tabrowsep
-\tabplainRow
-\textbf{Socket}
-& \textbf{Primary subject}
-& \emph{The unit on which the central comparison is defined.}  One set
-  of cores, one local HBM tier, one local DDR5 tier. \\[3pt]
-\tabbottomrule
-\end{tabularx}
-\caption{Which parts of the cluster this thesis depends on.  The
-narrowness is deliberate: every level that is excluded is a level whose
-variability cannot contaminate the memory-tier comparison.}
-\label{tab:hpc-scope}
-\end{table}
-
-With that scope fixed, \secref{sec:xeon-max-platform} describes the
-socket and memory system that make the question askable,
-\secref{sec:inference-model} develops the workload model, and
-\chapref{chap:experimental-platform} describes the particular cluster on
-which the question is tested.
+model inference at all.  Machines that combine high-bandwidth memory
+with a large-capacity memory tier are often deployed as HPC systems.
+The available route to the processor is therefore a cluster allocation
+even though the question itself is about a single socket.
+\chapref{chap:experimental-platform} describes the Xeon Max hardware
+and its memory modes first, then the CRESCO8 cluster that provides
+access to it.

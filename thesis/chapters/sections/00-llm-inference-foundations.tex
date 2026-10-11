@@ -111,7 +111,7 @@ serially dependent, even though the operations inside one pass are parallel.
 \endgroup
 \caption{Autoregressive generation at token level.  Token boundaries are
 illustrative and depend on the tokenizer; the example is not intended to show
-the output of a particular model.  Author's synthesis.}
+the output of a particular model.}
 \label{fig:token-generation}
 \end{figure}
 
@@ -298,9 +298,7 @@ them.
 Weights persist across requests; the KV cache is created in prefill and grows
 during decode; temporary buffers are shown by stage.  Columns indicate stages,
 not durations or memory sizes.  Allocations and cache release depend on the
-runtime; detokenization can overlap decode.
-Author's synthesis, informed by Pope et al., FlexGen and
-PagedAttention~\cite{pope2023efficient,sheng2023flexgen,kwon2023pagedattention}.}
+runtime; detokenization can overlap decode~\cite{pope2023efficient,sheng2023flexgen,kwon2023pagedattention}.}
 \label{fig:inference-memory-lifetimes}
 \end{figure}
 \FloatBarrier
@@ -308,7 +306,9 @@ PagedAttention~\cite{pope2023efficient,sheng2023flexgen,kwon2023pagedattention}.
 Three latency and throughput concepts follow directly.  \emph{Time to first
 token} (TTFT) covers the request boundary through the first generated token and
 is therefore driven largely, but not exclusively, by prefill.  \emph{Inter-token
-latency} (ITL), also called time per output token, measures successive decode
-steps.  Throughput in tokens per second depends on whether tokens are counted
+latency} (ITL) measures the gaps between successive output tokens;
+\emph{time per output token} (TPOT) summarises their average within a
+request.  Throughput in tokens per second depends on whether tokens are counted
 for one sequence or across a batch.  These metrics answer different questions
 and must be reported with prompt length, generated length and concurrency.
+\secref{sec:metrics} defines them more precisely.
