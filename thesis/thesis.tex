@@ -65,17 +65,21 @@
 \definecolor{ddrcol}{RGB}{55,105,165}
 \definecolor{neutralcol}{RGB}{235,238,242}
 \definecolor{citecol}{RGB}{128,0,32}
-\definecolor{figcol}{RGB}{27,102,74}
+% Match the Sapienza burgundy used by sapthesis on the title page.
+\definecolor{figcol}{RGB}{130,36,51}
 \definecolor{tabcol}{RGB}{35,82,145}
 \definecolor{eqcol}{RGB}{112,54,132}
 \definecolor{seccol}{RGB}{85,85,95}
-\definecolor{tabhead}{RGB}{236,239,244}
+% Tables share the flat Sapienza red used in the drawings.
+\colorlet{tabhead}{figcol}
+\definecolor{tabstripe}{HTML}{F2F4F6}
+\definecolor{tabline}{HTML}{D8DEE5}
 
 \setlist[itemize]{leftmargin=*, itemsep=2pt, topsep=4pt}
 \setlist[enumerate]{leftmargin=*, itemsep=2pt, topsep=4pt}
 \captionsetup{font=small, labelfont=bf}
 \captionsetup[figure]{labelfont={bf,color=figcol}}
-\captionsetup[table]{labelfont={bf,color=tabcol}}
+\captionsetup[table]{position=bottom, skip=8pt, labelfont={bf,color=tabcol}}
 \setlength{\emergencystretch}{2.5em}
 \widowpenalty=10000
 \clubpenalty=10000
@@ -104,7 +108,20 @@
   \endgroup
   \vspace{9pt}}
 \newcommand{\headrow}{\rowcolor{tabhead}}
-\newcommand{\tabsetup}{\renewcommand{\arraystretch}{1.22}}
+\newcommand{\headcell}[1]{\textcolor{white}{\textbf{#1}}}
+\newcommand{\tabstripeRow}{\rowcolor{tabstripe}}
+\newcommand{\tabplainRow}{\rowcolor{white}}
+\newcommand{\tabrowsep}{\arrayrulecolor{tabline}\hline}
+\newcommand{\tabheadrule}{\arrayrulecolor{white}\hline\arrayrulecolor{tabline}}
+\newcommand{\tabbottomrule}{\arrayrulecolor{tabhead}\hline\arrayrulecolor{tabline}}
+% Keep these settings local to each table or grouped multipage table.
+% Explicit body-row colours preserve the stripe sequence across page breaks.
+\newcommand{\tabsetup}{%
+  \renewcommand{\arraystretch}{1.18}%
+  \setlength{\tabcolsep}{6pt}%
+  \setlength{\extrarowheight}{3pt}%
+  \setlength{\arrayrulewidth}{0.35pt}%
+  \arrayrulecolor{tabline}}
 \newcommand{\lcpp}{\texttt{llama.cpp}}
 \newcommand{\ggml}{\texttt{ggml}}
 \newcounter{boxlblcounter}  
@@ -154,14 +171,15 @@
 }
 
 % Metadata
-\hypersetup{pdftitle={Thesis},pdfauthor={Lucian Dorin Crainic}, urlcolor=black, linkcolor=black, colorlinks=true}
+\hypersetup{pdftitle={Thesis},pdfauthor={Lucian Dorin Crainic}, urlcolor=black, linkcolor=black, citecolor=citecol, colorlinks=true}
 \title{TODO}
 \author{Lucian Dorin Crainic}
 \IDnumber{1938430}
 \course{Master's Degree in Computer Science}
 \courseorganizer{Faculty of Information Engineering, Computer Science and Statistics}
-\AcademicYear{20xx/20xx}
-\advisor{Prof. ?}
+\AcademicYear{2026/2027}
+\advisor{Prof. Salvatore Pontarelli}
+\coadvisor{Prof. Daniele De Sensi\\[1mm]Dr. Marco Faltelli}
 \authoremail{crainic.lucian@gmail.com}
 \copyyear{20xx}
 \thesistype{Master's Thesis}
@@ -175,10 +193,8 @@
 
 \maketitle
 
-% ================== DEDICATION ==================
-\dedication{
-    It does not matter how slowly you go as long as you do not stop. 
-}
+% ================== QUOTATION ==================
+\dedication{\input{front-matter/quotation}}
 % ================== ABSTRACT ==================
 
 \input{front-matter/abstract}
