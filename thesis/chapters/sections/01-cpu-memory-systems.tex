@@ -1,0 +1,127 @@
+\section{CPU memory systems}
+\label{sec:cpu-memory-systems}
+
+\subsection{Caches, main memory and physical residency}
+
+A CPU load or store uses a virtual address that is translated to a
+physical page.  Data is transferred through a hierarchy of registers,
+CPU caches and main memory.  Caches retain recently used cache lines,
+not whole model objects as an indivisible unit.  A cache hit can serve
+an access without fetching the line from main memory; a miss requires
+data from a lower level.  Cache levels differ in capacity, latency and
+sharing, and the exact organization is processor dependent.
+
+The \textbf{working set} is the data used during the interval under
+study.  Cache capacity can allow a tile of a large matrix to be reused
+even when the complete model is much larger than the last-level cache.
+Conversely, a tensor's presence in RAM does not imply a cache hit.
+Stores also generate traffic: modified cache lines eventually need
+writeback, and some store paths fetch a line before updating it.  The
+bytes logically consumed by a kernel are consequently different from
+the bytes observed at a memory controller.
+
+File size describes persistent storage.  Virtual address space describes
+addressable ranges.  Allocated capacity describes storage assigned to
+objects or pools.  \textbf{Physical residency} describes which pages are
+currently backed in RAM.  Operating-system resident-set measurements
+must be interpreted with care when pages are shared or file backed;
+summing process footprints can count shared pages more than once.
+These quantities answer different questions and should not be used as
+interchangeable measures of model memory use.
+
+\subsection{HBM, DDR and memory modes}
+
+\textbf{DDR} is conventional system DRAM accessed through memory
+channels.  \textbf{HBM} uses stacked DRAM and a wide interface to provide
+high aggregate bandwidth.  In CPU systems combining them, HBM generally
+offers a smaller high-bandwidth resource and DDR a larger capacity
+resource; usable sizes and attainable rates depend on the platform.
+HBM's bandwidth advantage does not establish a lower latency for every
+access pattern~\cite{intelmaxoverview,ibeid2025aurora}.
+
+\textbf{Bandwidth} is transferred bytes per unit time,
+\textbf{latency} is the time to complete an access, and
+\textbf{capacity} is the amount held at once.  Concurrent independent
+misses can hide part of the latency and sustain bandwidth.  A dependent
+load chain can remain latency limited even when measured bandwidth is
+low.  A working set can fit in a tier yet fail to use its bandwidth, or
+require more capacity than that tier provides despite modest traffic.
+
+In a separately addressable, often called \textbf{Flat}, configuration,
+software can allocate physical pages from exposed memory domains.
+Placement can then determine which tier backs weight tensors or KV
+storage.  In a hardware-managed \textbf{Cache} configuration, HBM acts
+as a cache for DDR backing memory; software does not assign every tensor
+a separate HBM address range in the same way~\cite{intelmaxoverview}.
+\figref{fig:cpu-memory-organization} shows the distinction.  Neither
+mode is a universal default; the actual firmware mode and exposed
+memory topology belong to the platform description.
+
+\begin{figure}[htbp]
+\centering
+\input{figures/cpu-memory-organization}
+\caption{Flat and Cache memory organizations.  In Flat mode, backing
+pages for each weight or KV allocation can reside in either exposed
+tier.  Dashed arrows show possible backing storage, without choosing a
+placement policy.  In Cache mode, allocations have DDR backing storage;
+hardware manages the HBM cache, and an HBM miss accesses DDR.  CPU
+caches form a separate hierarchy in both modes.  Solid arrows show
+access paths, not all individual transfers.  Symbols and sizes are
+schematic; stacked dies represent HBM and a module represents DDR.}
+\label{fig:cpu-memory-organization}
+\end{figure}
+\FloatBarrier
+
+\subsection{Sockets, NUMA and allocation locality}
+
+A shared-memory node can contain multiple processor sockets.  With
+\textbf{non-uniform memory access} (NUMA), memory domains have different
+access costs depending on which cores issue requests.  A remote access
+can traverse an inter-socket link and compete for resources beyond the
+local memory channels.  A socket can also expose several locality
+domains.  NUMA is therefore a relationship between initiator cores and
+memory targets, not simply a synonym for socket count~\cite{linuxnumaperf}.
+\figref{fig:numa-access-paths} contrasts local and remote access from
+the same executing core.
+
+\begin{figure}[htbp]
+\centering
+\input{figures/numa-access-paths}
+\caption{Local and remote NUMA access from a core in domain A.  Local
+access targets pages in A; remote access reaches pages in B through an
+interconnect.  The additional path and resource contention can change
+latency and attainable bandwidth, without a universal numerical penalty.
+Domains can lie within one socket or across sockets.  Arrows indicate
+access requests; CPU caches and memory controllers are omitted to focus
+on locality.  Page symbols do not identify a particular memory tier.}
+\label{fig:numa-access-paths}
+\end{figure}
+\FloatBarrier
+
+\textbf{Thread affinity} determines where threads execute; memory policy
+influences which domains provide pages.  They are separate controls.
+For ordinary anonymous allocations under a local default policy,
+physical pages are commonly established on first touch rather than when
+a virtual range is merely reserved.  Parallel initialization can thus
+produce different locality from serial initialization.  Binding or
+interleaving policies change allocation behavior, and file-backed mappings
+have their own policy rules~\cite{linuxnumapolicy2026}.  Touching a tensor
+on one core does not guarantee that later accesses by all other cores
+are local.  Observed page placement and the loading mechanism must
+support such a claim.
+
+\textbf{Placement} describes where backing storage resides.
+\textbf{Access traffic} describes bytes transferred while using it.
+\textbf{Migration} changes existing data's residency, for example by
+moving pages between domains.  Allocating a destination and copying
+into it creates additional traffic and may temporarily require both
+copies.  Cache-line fills do not by themselves constitute migration of
+the tensor's backing pages.  These distinctions apply to both weight
+and KV storage, independent of which policies a later design examines.
+
+A cluster connects independently booted nodes and allocates them
+through a scheduler.  Shared-memory access within a node differs from
+explicit communication between nodes.  The actual topology, scheduler
+workflow and operating conditions are developed in the platform and
+methodology material.
+\FloatBarrier

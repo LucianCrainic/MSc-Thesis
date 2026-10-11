@@ -1,0 +1,60 @@
+% One initiator accesses local or remote pages; domains are not fixed to sockets.
+\begingroup
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[
+ font=\small\sffamily,text=black!80,
+ hardware/.style={draw=tabline,fill=neutralcol,line width=0.65pt},
+ local/.style={-{Stealth[length=5pt,width=4pt]},draw=figcol,line width=1.2pt},
+ remote/.style={-{Stealth[length=5pt,width=4pt]},draw=ddrcol,dashed,line width=1.2pt},
+ note/.style={font=\footnotesize\sffamily,align=center},
+ heading/.style={font=\small\sffamily\bfseries}
+]
+\foreach \xmin/\xmax/\mid/\name in {0/5/2.5/A,7.3/12.3/9.8/B} {
+ \draw[draw=tabline,rounded corners=5pt,line width=0.8pt]
+  (\xmin,0) rectangle (\xmax,-3.6);
+ \node[heading] at (\mid,0.45) {NUMA domain \name};
+}
+
+% Core symbols; the first core is the highlighted access initiator.
+\foreach \cx in {1.2,8.5} {
+ \begin{scope}[shift={(\cx,-1.4)}]
+  \foreach \p in {-0.38,0,0.38} {
+   \draw[draw=black!45] (\p,-0.65)--(\p,-0.8);
+   \draw[draw=black!45] (\p,0.65)--(\p,0.8);
+   \draw[draw=black!45] (-0.65,\p)--(-0.8,\p);
+   \draw[draw=black!45] (0.65,\p)--(0.8,\p);
+  }
+  \draw[hardware,rounded corners=2pt] (-0.65,-0.65) rectangle (0.65,0.65);
+  \foreach \dx in {-0.4,0.05} \foreach \dy in {-0.4,0.05}
+   \draw[draw=tabline,fill=white] (\dx,\dy) rectangle ++(0.35,0.35);
+ \end{scope}
+}
+\draw[draw=figcol,fill=figcol!25] (1.02,-1.64)--(1.02,-1.16)--(1.43,-1.4)--cycle;
+\node[note] at (1.2,-0.35) {Executing core};
+\node[note] at (8.5,-0.35) {Other cores};
+
+% Generic physical pages: the comparison is locality, not HBM versus DDR.
+\foreach \cx/\name in {3.85/A,11.15/B} {
+ \begin{scope}[shift={(\cx,-1.4)}]
+  \draw[hardware,fill=white] (-0.42,-0.38) rectangle (0.78,0.78);
+  \draw[hardware,fill=white] (-0.6,-0.56) rectangle (0.6,0.6);
+  \foreach \dx in {-0.43,0.05} \foreach \dy in {-0.37,0.08}
+   \draw[hardware] (\dx,\dy) rectangle ++(0.38,0.34);
+ \end{scope}
+ \node[note] at (\cx,-2.58) {Pages in \name};
+}
+
+% Local requests stay in A. Remote requests traverse a domain interconnect.
+\draw[local] (2.03,-1.4)--(3.22,-1.4);
+\node[note] at (2.63,-0.98) {Local};
+\draw[hardware,fill=white,rounded corners=2pt]
+ (5.36,-3.39) rectangle (6.94,-2.81);
+\foreach \dy in {-3.24,-2.96}
+ \draw[draw=tabline] (5.5,\dy)--(6.8,\dy);
+\draw[remote] (1.2,-2.21)--(0.35,-2.21)--(0.35,-3.1)
+ --(10.1,-3.1)--(10.1,-1.4)--(10.52,-1.4);
+\node[note,fill=white,inner sep=2pt] at (3.45,-3.1) {Remote};
+\node[note] at (6.15,-3.82) {Interconnect};
+\end{tikzpicture}%
+}
+\endgroup

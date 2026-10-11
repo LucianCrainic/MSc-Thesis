@@ -1,17 +1,15 @@
 %======================================================================
-%  CRESCO8 as the experimental testbed
+%  CRESCO8: the cluster and the observed configuration of its HBM nodes
 %======================================================================
 
-\section{CRESCO8 as the experimental testbed}
+\section{CRESCO8}
 \label{sec:cresco8}
 
-\subsection{Documented configuration}
-
-CRESCO8 is an ENEA compute system at the research centre in Portici.  It
-entered service in 2025 and is connected by a 200\,Gb/s Mellanox NDR
-fabric~\cite{cresco8doc,eneapress}.  The public operational page, last
-updated on 1 July 2025, distinguishes the three compute-node classes
-listed in \tabref{tab:cresco8-node-classes}:
+CRESCO8 is an ENEA compute system at the Portici research centre, in
+service since 2025~\cite{cresco8doc,eneapress}.  It has three classes of
+compute node (\tabref{tab:cresco8-node-classes}).  This thesis uses the
+CPU--HBM class; the general CPU class matters only as a possible
+system-level baseline.
 
 \begin{table}[htbp]
 \centering
@@ -30,7 +28,7 @@ CPU
 \tabrowsep
 \tabplainRow
 CPU--HBM
- & 15 & 112 & 1,024\,GB DDR5\newline + 128\,GB HBM
+ & 16 & 112 & 1{,}024\,GB DDR5\newline + 128\,GB HBM
  & 2$\times$ Xeon CPU Max 9480 \\[3pt]
 
 \tabrowsep
@@ -41,174 +39,222 @@ GPU
    4$\times$ Intel Data Center GPU Max 1550 \\[3pt]
 \tabbottomrule
 \end{tabularx}
-\caption{CRESCO8 node classes documented by ENEAGRID.  Counts describe a
-dated operational document, not a permanent scheduler inventory
-~\cite{cresco8doc}.}
+\caption{CRESCO8 node classes.  The CPU and GPU rows follow the ENEAGRID
+documentation~\cite{cresco8doc}.  The CPU--HBM count is the scheduler's:
+on 11 October 2026 Slurm listed 16 HBM nodes, whereas the documentation
+lists 15.}
 \label{tab:cresco8-node-classes}
 \end{table}
 
-The same page calls this a 793-node system, although the listed classes
-sum to 792 and its reported core total is consistent with the 792-node
-breakdown.  Earlier commissioning material gives yet another snapshot
-~\cite{eneacresco8slides}.  This inconsistency is operational rather than scientific, and the
-response is procedural: every experiment retains dated
-\texttt{sinfo -N} and \texttt{scontrol show node} output, and the thesis
-\textbf{reports the observed inventory} rather than silently reconciling
-historical documents.
+The general CPU nodes are not a clean control for the HBM nodes.  The
+Platinum 8592+ is an Emerald Rapids processor, one generation newer than
+the Max 9480, with 64 cores, DDR5-5600 memory and a 320\,MB last-level
+cache, nearly three times the Max 9480's 112.5\,MB~\cite{intel8592}.  A
+comparison between the two node classes changes the core count, the
+memory speed and the cache size together with the absence of HBM.  The
+cache difference is the most serious confound for inference: the weights
+of a model of a few hundred million parameters at 4-bit precision fit
+almost entirely in the 8592+'s cache, which is the cache-residency effect
+that Zhang et al.\ exploit~\cite{zhang2026cacheresident}.  Such a
+comparison is therefore reported, if at all, as a system-level baseline
+and never as an HBM effect.
 
+\subsection{Interconnect}
 
-\subsection{Why the HBM partition supports a clean comparison}
+Each HBM node has an NVIDIA ConnectX-7 adapter with one InfiniBand port
+active at 200\,Gb/s, the NDR200 rate.  That is 25\,GB/s in each
+direction: about a fortieth of one socket's nominal HBM bandwidth and a
+twelfth of its DDR5 interface peak (\tabref{tab:xeon-max-peaks}).
+Distributing a model
+across nodes would make the network, not the memory tier, the dominant
+cost, which is one reason the experiments stay within one node.
 
-Each documented HBM node contains two Max 9480 sockets, 1\,TB of DDR5
-and 128\,GB of HBM.  This makes three comparisons possible, but they do
-not have equal evidential strength:
+\subsection{Scheduler and allocation policy}
+\label{sec:cresco8-scheduler}
 
-\begin{enumerate}
-  \item \textbf{Local HBM versus local DDR5 on the same Max 9480
-        socket} is the primary comparison.  Processor, core count,
-        executable and most firmware conditions can be held constant.
+Compute nodes are reached only through Slurm; the front-end nodes are
+for editing, compilation and submission, not for measurement.  The HBM
+nodes are split between two partitions with disjoint node lists.
+\texttt{cresco8\_hbm} contains \texttt{cresco8-hbm01} to \texttt{hbm14},
+with a 24-hour limit and a quality-of-service limit of five nodes per
+user.  \texttt{cresco8\_hbm\_dbg} contains \texttt{hbm15} and
+\texttt{hbm16}, with a one-hour limit.
 
-  \item \textbf{One socket versus two sockets, or Quadrant versus SNC4},
-        tests the runtime's response to topology.  It is a placement
-        experiment, not a pure memory-technology comparison.
+The scheduler (Slurm 25.11.8) allocates individual cores
+(\texttt{select/cons\_tres} with \texttt{CR\_CORE}) and does not allow jobs
+of different users to be excluded from a node unless a job asks for it.
+Without \texttt{-{}-exclusive}, another user's job can therefore run on the
+other cores of the same node and compete for the same memory bandwidth
+and, in Cache mode, the same HBM cache.  Every measurement in this thesis
+uses an exclusive allocation.  Jobs run inside cgroup-v2 containers with
+core and memory confinement: a job may use only the memory it requests,
+and 10\,GB per node are reserved for the system.  The memory set of the
+cgroup, by contrast, is not restricted (\secref{sec:hbm-clustering}).
 
-  \item \textbf{Max 9480 versus Platinum 8592+} is a secondary
-        system-level baseline.  The processors differ in generation,
-        core count, cache, clocks, memory channels and uncore behaviour.
-        The contrast cannot identify an HBM effect by itself.
-\end{enumerate}
+\subsection{Storage and model staging}
+\label{sec:cresco8-storage}
 
-The installed DDR capacity does not reveal the DIMM layout.  Sixteen
-64\,GB DIMMs would populate all channels, but the platform also permits
-eight 128\,GB DIMMs with Xeon Max~\cite{lp1603}.  Channel population,
-memory frequency and local bandwidth therefore require direct
-inspection.  In the documented production configuration, the presence
-of 1\,TB of DDR5 means that the nodes use Flat or Cache mode rather than
-Lenovo's no-DDR HBM-only topology.  The public ENEA page does not
-identify the active mode, but the project's September 2026 node check
-recorded Cache mode.  HBM was not exposed as a separate memory-only
-NUMA node.  In Flat mode it would be.
+ENEAGRID provides AFS for home directories and the Lustre file system
+\texttt{/lpor1}, 6.9\,PB in size and 90\% occupied at the time of the
+check, for parallel I/O~\cite{cresco8doc}.  Each HBM node also has a
+960\,GB Micron 7450 NVMe drive.  It holds the operating system, and its
+root file system, including \texttt{/tmp}, had 104\,GB free; Slurm does
+not manage it as a resource.  \texttt{/dev/shm} is a memory-backed file
+system of up to 504\,GB.
 
-Project-specific operational guidance supplies two further facts that
-are not present on the public cluster page.  First, the current
-\emph{clustering} setting is Quadrant, although the administrators can
-change it to SNC4.  Quadrant is therefore the initial experimental
-baseline, not a permanent property of CRESCO8.  Second, an HBM-only
-configuration---in which DDR5 is not available to the operating system
-or workload---may be provided for a later campaign.  Lenovo documents
-HBM-only for a system without installed DDR5~\cite{lp1738}, whereas the
-CRESCO8 nodes physically contain DDR5; the exact local procedure for
-making DDR5 unavailable must consequently be confirmed with the
-administrators.  The experiment should record the observed outcome
-rather than assume whether the DIMMs were disabled or physically
-removed.  In either case, a dual-socket HBM-only run has at most 128\,GB
-of nominal main memory, shared with the operating system, and it must
-still specify Quadrant or SNC4 clustering
-(\secref{sec:hbm-clustering}).
+Where the model file lives affects the measurement.  Runtimes such as
+\lcpp{} map the model file into memory by default, so the weights become
+page-cache pages of a Lustre file.  Those pages can be evicted and fetched
+again over the network during a run, and their placement is decided when
+they are first read rather than by the experiment's binding.  Models are
+therefore staged to node-local storage before a run, and the weights are
+loaded into anonymous memory (for \lcpp{} with \texttt{-{}-no-mmap}) so
+that the binding applies to them.  The staging method is recorded with
+each result.
 
-The NDR link has a raw one-direction rate of 25\,GB/s per node, far
-below local HBM bandwidth.  Multi-node inference may still be necessary
-for capacity, but communication can then dominate the placement effect.
-Single-node experiments should establish a stable result before adding
-distributed parallelism.
+\subsection{Software environment}
+\label{sec:cresco8-software}
 
-\subsection{Scheduler and storage context}
+The HBM nodes run Red Hat Enterprise Linux~9.4 with kernel
+5.14.0-427.13.1.  The kernel is booted with \texttt{mitigations=off} and
+\texttt{intel\_pstate=disable}, and a site-specific \texttt{tuned}
+profile is active.  The system compiler is GCC~11.4.1.  Environment
+modules provide GCC~12, 14 and 15.1 and the Intel oneAPI 2025, 2025.3
+and 2026.1 toolchains; oneAPI and an Intel-built Open MPI are loaded at
+login by default.  \texttt{hwloc}~2.4.1 and \texttt{numactl} are
+installed.  The versions of the inference runtimes and their libraries
+are fixed per experiment, as described in the methodology.
 
-The documented production partition is \texttt{cresco8\_hbm}, with 14
-nodes and a 24-hour limit; \texttt{cresco8\_hbm\_dbg} lists two nodes
-and a one-hour limit~\cite{cresco8doc}.  Their hostnames can overlap, so
-these counts must not be added.
+\subsection{Observed configuration of the HBM nodes}
+\label{sec:cresco8-observed}
 
-Compute nodes are reached only through Slurm.  The front ends are for
-editing, compilation and submission, not benchmarking.  ENEAGRID
-provides AFS for shared home directories and Lustre for parallel I/O;
-large model files and benchmark output belong on the latter, subject to
-the site's current mount points and quotas.  Compiler, MPI and profiler
-modules listed on the web page are useful starting points, but an
-experiment must record the modules and linked libraries actually loaded
-on the run date.
+The configuration of the regular HBM partitions was captured on
+\texttt{cresco8-hbm15} by an exclusive job on 11 October 2026, with the
+probes listed in \appref{app:reproducibility}.  The same probes are part
+of the platform record that the benchmark suite stores with every
+campaign~\cite{hwbench2026}, so each measurement in the following
+chapters carries its own copy of this table.  An earlier allocation on
+the same node, on 29 September 2026, had already shown two NUMA nodes and
+no separate HBM node.  \tabref{tab:cresco8-manifest} lists what was
+observed and why each item matters for the experiments.
 
-\subsection{Why this platform, and what it costs}
-\label{sec:why-cresco8}
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\begin{tabularx}{\textwidth}{P{2.7cm}P{5.0cm}Y}
+\headrow
+\headcell{Item} & \headcell{Observed} & \headcell{Consequence} \\[3pt]
+\tabheadrule
+\tabstripeRow
+Memory mode
+  & Cache: two NUMA nodes of 503\,GB, each behind a 64\,GiB direct-mapped,
+    write-back memory-side cache with 64\,B lines
+  & HBM use is decided by footprint and physical placement, not by
+    binding. \\[3pt]
 
-Machines that expose HBM and DDR as separately addressable tiers on a
-general-purpose CPU are not common, and the ones that exist are mostly
-not reachable.  Aurora is the largest Xeon Max deployment and the source
-of most of the published measurement literature on this
-processor~\cite{ibeid2025aurora,goto2026aurorahpl}, but access to it is
-not something a thesis can assume.  Fifteen nodes at ENEA are a small
-resource by comparison.  The proposed first experiments use a single
-socket, so access to this processor and its two local memory tiers
-matters more than the total node count.
+\tabrowsep
+\tabplainRow
+Clustering
+  & Quadrant: one NUMA node per socket
+  & Binding is per socket. \\[3pt]
 
-The scarcity does shape the experimental design, though, and it is
-better to admit that in the method than to discover it halfway through.
-Fourteen nodes in \texttt{cresco8\_hbm} are shared with the rest of the
-centre, the queue limit is 24 hours, and the debug partition offers two
-nodes for an hour.  A full Cartesian sweep over model, quantization,
-prompt length, generation length, batch size, thread count, memory tier
-and clustering mode does not fit in that budget and would not be worth
-running if it did.  Salaria et al.\ give the principled response:
-measure the cost of the benchmark alongside its result, and choose a
-subset of the space that preserves most of its information.  Their
-example reduces generation length from 1024 to 128 tokens and retains
-96.6\% of the accuracy at 2.7$\times$ less
-cost~\cite{salaria2025metametrics}.  \secref{sec:inference-model}
-supplies the other half of the argument, since the model predicts which
-factors move the outcome and which merely enlarge the table.
+\tabrowsep
+\tabstripeRow
+DDR5 population
+  & Eight 64\,GB DIMMs per socket, one per channel
+  & All eight channels available. \\[3pt]
 
-One further consequence deserves stating early.  Because HBM nodes are
-shared and both memory and clustering modes are platform settings fixed
-for a boot, the configuration available on an allocated node is a
-constraint rather than a per-job variable.  The currently observed
-Cache+Quadrant configuration should be used for the initial baseline.  SNC4
-and HBM-only, if made available, are separate administrator-coordinated
-experimental blocks: SNC4 changes the NUMA decomposition, while
-HBM-only removes DDR5 from the usable memory hierarchy.  With only
-Cache mode available, software cannot bind weights or KV pages to an
-HBM NUMA node or obtain a same-node DDR-only control.  The Flat-mode
-placement experiments therefore require a separately arranged
-configuration; Cache-mode working-set and topology experiments remain
-possible.
-Establishing both active settings remains the first task of every new
-configuration block, not a detail to be confirmed later.
+\tabrowsep
+\tabplainRow
+Threads
+  & SMT inactive; 112 logical CPUs, one per core
+  & Thread count equals core count. \\[3pt]
 
-\subsection{First allocation: capture facts before benchmarking}
-\label{sec:first-allocation}
+\tabrowsep
+\tabstripeRow
+Frequency control
+  & \texttt{acpi-cpufreq} driver, \texttt{schedutil} governor
+  & Frequency is not fixed; it is sampled during runs. \\[3pt]
 
-The first HBM allocation creates a machine-readable system manifest
-before any performance benchmark is interpreted.  The reproducibility
-appendix provides the topology-capture script and the complete platform
-record (\chapref{app:reproducibility}).  The script is deliberately a
-skeleton: account names, available utilities and Slurm resource syntax
-must be checked on the live system.
+\tabrowsep
+\tabplainRow
+NUMA balancing
+  & Disabled; memory-tier demotion disabled
+  & The kernel does not migrate pages behind the experiment. \\[3pt]
 
-\figref{fig:cresco8-lstopo} is what the topology half of that manifest
-actually looks like, captured from a CRESCO8 node.  It is worth reading
-once, because it shows the difference between a specification and an
-observation.  The two processor packages appear with their own memory,
-their caches and the devices attached to each, and the numbers on the
-links are relative access costs.  Note that this particular node is from
-the general CPU partition rather than the HBM partition: it reports two
-memory nodes of roughly 250\,GB each and no separate high-bandwidth
-tier.  On a Max~9480 node running in Flat mode, the same command should
-additionally report memory-only NUMA nodes carrying the HBM, and
-confirming that is the first thing \secref{sec:hbm-modes} requires of
-the first allocation.
+\tabrowsep
+\tabstripeRow
+Zone reclaim
+  & \texttt{zone\_reclaim\_mode} = 1
+  & A full local node reclaims page cache before allocating remotely. \\[3pt]
+
+\tabrowsep
+\tabplainRow
+Huge pages
+  & Transparent huge pages \texttt{always}; defragmentation on
+    \texttt{madvise}
+  & Large allocations get 2\,MB pages when free memory allows. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+Counters and energy
+  & \texttt{perf\_event\_paranoid} = 2; no \texttt{perf}; MSR and RAPL
+    readable by root only
+  & No uncore traffic or RAPL energy for users
+    (\secref{sec:sd650-node}). \\[3pt]
+
+\tabrowsep
+\tabplainRow
+Job cgroup
+  & \texttt{cpuset.mems.effective} = \texttt{0-1}
+  & Memory binding is not restricted by Slurm. \\[3pt]
+\tabbottomrule
+\end{tabularx}
+\caption{Configuration of a CRESCO8 HBM node as observed by an exclusive
+job on \texttt{cresco8-hbm15}, 11 October 2026.}
+\label{tab:cresco8-manifest}
+\end{table}
+
+\figref{fig:cresco8-lstopo} is the topology reported by \texttt{lstopo}
+on the same node.  It confirms the Cache-mode picture: each package has
+one NUMA node of about 503\,GB, and the 64\,GB HBM appears only as a
+\texttt{MemCache} object in front of it, never as allocatable memory.
+
+\paragraph{The Flat-mode node.}  In addition to the regular partitions,
+one HBM node has been configured in Flat mode with Quadrant clustering
+for this work and is reached outside the regular partitions.  Its NUMA
+topology has the four nodes
+expected from \tabref{tab:hbm-six-configurations}: two CPU-bearing DDR5
+nodes of about 503\,GiB and two memory-only HBM nodes of 64\,GiB, one per
+socket.  The firmware's distance from a socket's cores to its local HBM
+node is 13, and to the other socket's HBM node 23~\cite{hwbench2026}.
+Flat-mode placement experiments run on this node; the node identifiers
+are read from the running system before each run rather than assumed.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\textwidth]{cresco8-cpu-node-diagram.png}
-\caption{Topology of a CRESCO8 compute node as reported by
-\texttt{lstopo}, captured on \texttt{cresco8x001.portici.enea.it}.  Two
-packages, 64 cores each, with their own memory and network devices.  The
-absence of memory-only NUMA nodes identifies this as a node of the
-general CPU partition; an HBM node in Flat mode would show them.}
+\includegraphics[width=0.9\textwidth]{cresco8-hbm-node-lstopo.png}
+\caption{Topology of \texttt{cresco8-hbm15} as reported by
+\texttt{lstopo} (hwloc~2.4.1) on 11 October 2026.  Two packages of 56
+cores, each with a 113\,MB L3 and one DDR5 NUMA node behind a 64\,GB
+memory-side cache (\texttt{MemCache}): the signature of Cache mode with
+Quadrant clustering.}
 \label{fig:cresco8-lstopo}
 \end{figure}
 
-This separation between documented configuration and observed
-configuration is important.  Vendor documents establish what the platform \emph{can} support, and
-ENEAGRID describes a dated cluster state.  \textbf{Only the archived
-manifest establishes the conditions under which a reported result was
-actually obtained.}
+\subsection{Why this platform}
+\label{sec:why-cresco8}
+
+Systems that combine HBM and DDR on a general-purpose CPU are rare, and
+the largest, Aurora, is the source of most published measurements on the
+Xeon Max~\cite{ibeid2025aurora,goto2026aurorahpl} but is not available to
+this work.  CRESCO8's 16 HBM nodes provide access to the processor and
+both of its local memories, and the experiments need only one socket at a
+time.  The platform also sets a constraint.  Memory and clustering modes
+are fixed at boot and the nodes are shared with other users, so the
+configuration is not a per-job variable.  Two configurations are
+available: Cache with Quadrant clustering on the regular partitions, and
+Flat with Quadrant clustering on one dedicated node.  SNC4 and HBM-only
+would each be a separate block of experiments arranged with the
+administrators.

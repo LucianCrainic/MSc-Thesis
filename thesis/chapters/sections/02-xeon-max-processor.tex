@@ -1,0 +1,237 @@
+%======================================================================
+%  The processor: Intel Xeon CPU Max 9480
+%======================================================================
+
+\section{The Xeon CPU Max 9480 processor}
+\label{sec:xeon-max-processor}
+
+The Xeon CPU Max series is the Sapphire Rapids generation of Xeon
+Scalable processors with high-bandwidth memory added to the package.
+The Max 9480 installed on CRESCO8 is the series' largest part: 56 cores,
+112.5\,MB of last-level cache, 64\,GB of on-package HBM2e, eight DDR5-4800
+channels and four UPI links at 16\,GT/s, with a 1.9\,GHz base frequency,
+a 3.5\,GHz maximum turbo frequency and a 350\,W thermal design
+power~\cite{intel9480,intelmaxoverview}.  This section describes the
+parts of the processor that determine how an inference engine's work
+and data map onto it; the memory systems follow in
+\secref{sec:xeon-max-platform}.
+
+\subsection{Tiles, mesh and locality}
+\label{sec:xeon-max-tiles}
+
+A Max 9480 package is not one monolithic die.  It contains four compute
+tiles joined by EMIB silicon bridges, which extend the on-die mesh across
+tile boundaries so that the four tiles behave as one cache-coherent
+processor~\cite{nassif2022sapphire}.  On the Max 9480 each tile enables 14
+cores, holds a share of the last-level cache, and carries one DDR5 memory
+controller with two channels and one 16\,GB HBM2e
+stack~\cite{intelmaxoverview,lp1738}.  The memory controllers reported by
+the Linux EDAC driver on a CRESCO8 HBM node match this arrangement: four
+DDR5 controllers with two channels each per socket, and HBM controllers
+whose pseudo-channels add up to 64\,GB per socket.
+
+\figref{fig:node-locality} draws the resulting node.  The tile is the
+physical origin of the locality structure discussed later.  With
+sub-NUMA clustering disabled, addresses are interleaved over all four
+tiles and the socket appears as one locality domain.  With SNC4, each
+tile together with its two DDR5 channels and its HBM stack becomes a
+separate NUMA domain (\secref{sec:hbm-clustering}).  Two sockets are
+connected by UPI, so the dual-socket node is one shared-memory system
+with two levels of distance: tile to tile within a package, and package
+to package across UPI.
+
+\begin{figure}[htbp]
+\centering
+\begingroup
+\definecolor{socketink}{HTML}{263445}
+\definecolor{socketblue}{HTML}{365D85}
+\colorlet{socketaccent}{sapred}
+\definecolor{socketborder}{HTML}{CBD5DF}
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\small\sffamily, text=socketink,
+  card/.style={line width=0.65pt, rounded corners=4pt, align=center,
+               inner sep=3pt},
+  tile/.style={card, draw=socketborder, fill=socketink!4,
+               minimum width=2.6cm, minimum height=1.55cm},
+  hbm/.style={card, draw=socketaccent, fill=socketaccent!9,
+              minimum width=1.22cm, minimum height=0.82cm,
+              font=\footnotesize\sffamily},
+  ddr/.style={card, draw=socketblue, fill=socketblue!9,
+              minimum width=1.22cm, minimum height=0.82cm,
+              font=\footnotesize\sffamily},
+  bridge/.style={line width=2.2pt, draw=socketink!35},
+  wire/.style={line width=0.8pt},
+  note/.style={font=\footnotesize\sffamily, text=socketink!80,
+               align=center},
+  link/.style={{Stealth[length=5pt,width=4pt]}-{Stealth[length=5pt,width=4pt]},
+               line width=0.8pt, draw=socketink!75}
+]
+  \foreach \s/\x in {0/-4.0, 1/4.0} {
+    % Four tiles in a 2x2 arrangement; the grid conveys the tile
+    % structure, not the exact floorplan.
+    \foreach \t/\dx/\dy in {a/-1.55/0.95, b/1.55/0.95, c/-1.55/-0.95, d/1.55/-0.95} {
+      \node[tile] (t\s\t) at ({\x+\dx},\dy)
+        {\textbf{Tile}\\14 cores\\{\footnotesize L2 + LLC slices}};
+    }
+    \draw[bridge] (t\s a.east) -- (t\s b.west);
+    \draw[bridge] (t\s c.east) -- (t\s d.west);
+    \draw[bridge] (t\s a.south) -- (t\s c.north);
+    \draw[bridge] (t\s b.south) -- (t\s d.north);
+    \node[draw=socketborder, line width=0.65pt, rounded corners=6pt,
+          inner sep=6pt, fit=(t\s a)(t\s d)] (pkg\s) {};
+    % Each tile owns one HBM2e stack and two DDR5 channels.
+    \foreach \t/\dir/\anc in {a/above/north, b/above/north, c/below/south, d/below/south} {
+      \node[hbm, \dir=0.55cm of t\s\t.\anc, xshift=-0.66cm] (h\s\t)
+        {\textbf{HBM2e}\\16\,GB};
+      \node[ddr, \dir=0.55cm of t\s\t.\anc, xshift=0.66cm] (d\s\t)
+        {\textbf{DDR5}\\2 ch};
+      \draw[wire, draw=socketaccent] (h\s\t) -- (h\s\t |- t\s\t.\anc);
+      \draw[wire, draw=socketblue] (d\s\t) -- (d\s\t |- t\s\t.\anc);
+    }
+    \node[align=center, below=0.15cm of h\s c.south -| pkg\s.south]
+      {\textbf{Socket \s}\\
+       {\footnotesize 56 cores $\cdot$ 4 $\times$ 16\,GB HBM2e $\cdot$
+        8 DDR5 channels}};
+  }
+  \draw[link] (pkg0.east) -- node[above, note]{UPI}
+    node[below, note]{4 links\\16\,GT/s} (pkg1.west);
+
+  % One SNC4 domain: a tile with its own channels and HBM stack.
+  \node[draw=socketaccent!80, densely dashed, line width=0.7pt,
+        rounded corners=5pt, inner sep=3pt,
+        fit=(t1b)(h1b)(d1b)] (snc) {};
+  \node[note, right=0.15cm of snc.east, anchor=west, text=socketaccent]
+    {one SNC4\\domain};
+\end{tikzpicture}%
+}
+\endgroup
+\caption{Tile-level locality map of a CRESCO8 Xeon Max node.  Each
+package contains four compute tiles bridged by EMIB (inter-tile bars); every
+tile owns two DDR5 channels and one HBM2e stack.  The dashed outline
+marks what becomes one NUMA domain under SNC4.  The drawing shows
+ownership and locality, not the physical floorplan~\cite{nassif2022sapphire,intelmaxoverview,lp1738}.}
+\label{fig:node-locality}
+\end{figure}
+
+\subsection{Cores and caches}
+\label{sec:xeon-max-cores}
+
+The cores are Golden Cove server cores.  On the allocated node
+\texttt{lscpu} reports a 48\,KB, 12-way L1 data cache and a 2\,MB,
+16-way private L2 per core, and a 112.5\,MB, 15-way last-level cache
+shared by the 56 cores of a socket.  The last-level cache is
+non-inclusive: it is not guaranteed to hold a copy of the lines in the L2
+caches~\cite{intelmaxoverview}.
+
+Two properties of this hierarchy matter for inference.  First, the
+whole last-level cache is smaller than the weights of any model studied
+here, so the weights of every decode step stream from memory rather than
+from cache.  Second, the number of misses a core can keep outstanding is
+bounded.  Each Golden Cove core has 16 L1 data-cache fill buffers and can
+track 48 outstanding misses in its memory subsystem~\cite{anandtech2021goldencove}.  These
+limits set how much memory-level parallelism one core can generate.
+Together with Little's law (\secref{sec:littles-law}) they determine how
+many cores are needed before a memory tier's bandwidth becomes reachable
+(\secref{sec:platform-concurrency}).
+
+\subsection{Vector and matrix instructions}
+\label{sec:xeon-max-isa}
+
+Each core has two 512-bit fused multiply-add units for AVX-512.  On top
+of the floating-point instructions, the core supports AVX-512 VNNI for
+8-bit integer dot products, AVX-512 BF16 and AVX-512 FP16.  The largest
+addition is Advanced Matrix Extensions (AMX).  AMX adds eight tile
+registers of 1\,KB each, organised as up to 16 rows of 64 bytes, and a tile
+matrix-multiply unit that executes BF16 and INT8 multiply-accumulate on
+whole tiles.  Intel gives its peak as 1{,}024 BF16 and 2{,}048 INT8
+operations per cycle per core, against 64 and 256 for the AVX-512 BF16 and
+VNNI paths~\cite{intelarchday2021}.  The node's \texttt{/proc/cpuinfo}
+lists the \texttt{amx\_tile}, \texttt{amx\_bf16} and \texttt{amx\_int8}
+flags together with \texttt{avx512\_bf16}, \texttt{avx512\_fp16} and
+\texttt{avx512\_vnni}.
+
+AMX is the reason that matrix-matrix work such as prompt prefill is
+practical on this CPU: oneDNN, PyTorch and the CPU backends of
+\lcpp{} and vLLM dispatch BF16 and INT8 GEMMs to it.  It does little for
+low-batch decode, whose matrix-vector products are limited by the rate at
+which weights arrive rather than by arithmetic (\secref{sec:platform-llm}).
+AMX also has an operating-system requirement.  Its 8\,KB of tile state is
+enabled per process: a program must request permission with
+\texttt{arch\_prctl(ARCH\_REQ\_XCOMP\_PERM)} before its first AMX
+instruction~\cite{linuxxstate}.  The node kernel advertises the AMX
+flags, so the mechanism is available; the inference runtimes make the
+request themselves.
+
+\subsection{Clocks, threads and nominal peaks}
+\label{sec:xeon-max-peaks}
+
+The 1.9\,GHz base and 3.5\,GHz turbo frequencies are not the frequencies
+at which dense vector code runs.  Heavy AVX-512 and AMX execution lowers
+the sustainable core clock, and an all-core load is further limited by
+the 350\,W package budget.  Peak rates computed at the base frequency are
+therefore an upper bound for sustained vector work, not a prediction.
+On CRESCO8, simultaneous multithreading is not active: each node exposes
+112 logical CPUs, one per physical core, and Slurm schedules them with one
+thread per core.  The operating system manages frequency through the
+\texttt{acpi-cpufreq} driver with the \texttt{schedutil} governor,
+because the kernel is booted with \texttt{intel\_pstate=disable}
+(\secref{sec:cresco8-observed}).
+
+\tabref{tab:xeon-max-peaks} collects the nominal per-socket peaks used in
+the rest of the thesis.  The compute rows multiply the per-core rate by 56
+cores and the base frequency.  The DDR5 row is the channel arithmetic,
+eight channels of 4{,}800\,MT/s with eight bytes per transfer.  Intel does
+not publish a channel-level HBM figure and quotes up to about 1\,TB/s per
+socket~\cite{intelmaxoverview}.  These are specification values.  The
+sustainable ceilings, measured with dedicated bandwidth and compute
+kernels and combined into measured Rooflines, are the subject of the next
+chapter.
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\begin{tabularx}{\textwidth}{P{3.4cm}P{2.7cm}P{2.4cm}Y}
+\headrow
+\headcell{Resource} & \headcell{Per-core rate} & \headcell{Per socket} &
+\headcell{Basis} \\[3pt]
+\tabheadrule
+\tabstripeRow
+AVX-512 FP64 & 32 FLOP/cycle & 3.4\,TFLOP/s & Two FMA units, 8 lanes \\[3pt]
+
+\tabrowsep
+\tabplainRow
+AVX-512 FP32 & 64 FLOP/cycle & 6.8\,TFLOP/s & Two FMA units, 16 lanes \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+AMX BF16 & 1{,}024 FLOP/cycle & 108.9\,TFLOP/s & Intel peak
+  figure~\cite{intelarchday2021} \\[3pt]
+
+\tabrowsep
+\tabplainRow
+AMX INT8 & 2{,}048 op/cycle & 217.9\,TOP/s & Intel peak
+  figure~\cite{intelarchday2021} \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+DDR5-4800, 8 channels & -- & 307.2\,GB/s & $8 \times 4{,}800\,\text{MT/s}
+  \times 8$\,B \\[3pt]
+
+\tabrowsep
+\tabplainRow
+HBM2e, 4 stacks & -- & ${\approx}1$\,TB/s & Intel's quoted
+  figure~\cite{intelmaxoverview} \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+UPI 2.0 & -- & 4 links, 16\,GT/s & Socket-to-socket
+  links~\cite{intel9480} \\[3pt]
+\tabbottomrule
+\end{tabularx}
+\caption{Nominal per-socket peaks of the Max 9480.  Compute rates assume
+all 56 cores at the 1.9\,GHz base frequency and are upper bounds; the
+memory rows are interface peaks, not sustainable bandwidths.}
+\label{tab:xeon-max-peaks}
+\end{table}

@@ -1,0 +1,221 @@
+%======================================================================
+%  From the specification to LLM inference
+%======================================================================
+
+\section{What the platform implies for LLM inference}
+\label{sec:platform-llm}
+
+The preceding sections describe the platform; this one states what its
+specification implies for the workload studied in the thesis.  Every
+number here is derived from nominal peaks (\tabref{tab:xeon-max-peaks})
+and from model architecture, not measured.  The next chapter replaces the
+nominal ceilings with measured ones and builds the measured Rooflines of
+both memory configurations; the chapter after it compares what two
+inference back ends, \lcpp{} and vLLM, actually achieve against those
+ceilings.
+
+\subsection{Where inference sits on the Roofline}
+\label{sec:platform-nominal-roofline}
+
+\tabref{tab:nominal-ridge} gives the ridge point of each compute path
+against each memory tier, the arithmetic intensity at which a kernel stops
+being limited by bandwidth (\secref{sec:roofline}).  A matrix-vector
+product in decode performs approximately two operations per matrix
+weight for each evaluated sequence.  If the matrix is fetched once
+from main memory and other traffic is neglected, then with \(b\)
+evaluated sequences and \(w\) bytes per weight its intensity is about
+\(2b/w\): roughly \(b\) FLOP/byte for BF16 and \(2b\) operations per
+byte for INT8.  Prefill of \(P\) positions evaluated together gives the
+analogous weight-only estimate of \(P\) FLOP/byte in BF16~\cite{na2024llmcpu}.
+These estimates describe dense products, not every parameter access or
+the complete phase (\secref{sec:memory-requirements}).
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\begin{tabularx}{\textwidth}{P{3.4cm}P{2.6cm}YY}
+\headrow
+\headcell{Compute path} & \headcell{Peak per socket} &
+\headcell{Ridge vs HBM (1\,TB/s)} & \headcell{Ridge vs DDR5 (307.2\,GB/s)} \\[3pt]
+\tabheadrule
+\tabstripeRow
+AVX-512 FP32 & 6.8\,TFLOP/s & 6.8\,FLOP/byte & 22\,FLOP/byte \\[3pt]
+
+\tabrowsep
+\tabplainRow
+AMX BF16 & 108.9\,TFLOP/s & 109\,FLOP/byte & 355\,FLOP/byte \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+AMX INT8 & 217.9\,TOP/s & 218\,OP/byte & 709\,OP/byte \\[3pt]
+\tabbottomrule
+\end{tabularx}
+\caption{Nominal ridge points of one Max 9480 socket, from the peaks in
+\tabref{tab:xeon-max-peaks}.  Integer paths use operations rather than
+FLOP.  Measured ridge points follow in the next chapter.}
+\label{tab:nominal-ridge}
+\end{table}
+
+Under the weight-only assumptions, single-sequence BF16 decode has an
+intensity of about one FLOP per byte, two orders of magnitude left of
+the nominal AMX ridge on either tier; even 32 evaluated sequences remain
+left of it on HBM.  This suggests a bandwidth constraint for these dense
+products if the assumed main-memory traffic occurs, rather than proving
+the bottleneck of every serving configuration.  Attention additionally
+accesses KV histories, generally distinct across sequences, with reuse
+depending on heads, sharing and tiling.  Prefill of a few hundred positions
+evaluated together can approach or cross the nominal AMX ridge in this
+estimate.  Actual phase intensity requires the measured traffic and
+kernel execution path.
+
+\subsection{What fits where}
+\label{sec:platform-capacity}
+
+Capacity decides which tier can hold a model at all.
+\tabref{tab:model-capacity} gives the weight footprint of two
+representative model sizes with the Llama~3.1 architecture, 8 and 70
+billion parameters~\cite{grattafiori2024llama3}, at three precisions,
+against the HBM available at the three levels of locality: one tile under
+SNC4 (16\,GB), one socket (64\,GB) and one node (128\,GB).
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\begin{tabularx}{\textwidth}{P{2.2cm}P{2.6cm}P{2.0cm}Y}
+\headrow
+\headcell{Model} & \headcell{Weight precision} & \headcell{Weights} &
+\headcell{Smallest HBM domain that holds them} \\[3pt]
+\tabheadrule
+\tabstripeRow
+8B & BF16 & 16.1\,GB & One tile only nominally (15.0 of 16\,GiB); one
+  socket once KV cache and buffers are added \\[3pt]
+
+\tabrowsep
+\tabplainRow
+8B & INT8 & 8.0\,GB & One tile \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+8B & 4-bit (4.8\,bits/weight) & 4.9\,GB & One tile \\[3pt]
+
+\tabrowsep
+\tabplainRow
+70B & BF16 & 141\,GB & None; exceeds the node's 128\,GB \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+70B & INT8 & 70.6\,GB & Both sockets, split between them \\[3pt]
+
+\tabrowsep
+\tabplainRow
+70B & 4-bit (4.8\,bits/weight) & 42.5\,GB & One socket \\[3pt]
+\tabbottomrule
+\end{tabularx}
+\caption{Weight footprints of representative model sizes against HBM
+capacity.  The 4-bit row uses the effective size of common 4-bit GGUF
+formats, including their scale factors~\cite{llamacpp2026}.  Usable
+capacity is lower than nominal: in HBM-only mode the operating system
+shares it, and KV cache and runtime buffers compete for it in every
+mode.}
+\label{tab:model-capacity}
+\end{table}
+
+The KV cache adds a second, workload-dependent footprint.  With grouped-query
+attention, eight KV heads of dimension 128 and BF16 entries, one token
+occupies \(2 \times 32 \times 8 \times 128 \times 2\)\,bytes, or 128\,KiB,
+in the 8B model's 32 layers, and 320\,KiB in the 70B model's 80 layers.  A
+single 32k-token context therefore needs 4\,GiB and 10\,GiB respectively,
+and sixteen concurrent 8k-token contexts need 16\,GiB and 40\,GiB.  An 8B
+model in BF16 plus such a batch already fills half of a socket's HBM; a
+70B model in 4-bit precision plus the same batch does not fit in it.  This
+is the regime in which deciding what goes in HBM, weights or KV, becomes
+a real choice rather than a formality.
+
+\subsection{Upper bounds on decode throughput}
+\label{sec:platform-token-bounds}
+
+For single-sequence decode, let \(D_W\) and \(D_{\mathrm{KV}}\) be
+main-memory bytes read per evaluated position for weights and KV state.
+If both use the same memory boundary with bandwidth ceiling \(B\),
+neglecting other traffic gives the conditional bound
+
+\begin{equation}
+\label{eq:token-bound}
+  r_{\text{token}} \leq \frac{B}{D_W + D_{\mathrm{KV}}}.
+\end{equation}
+\eqcaption{Conditional bandwidth bound on single-sequence decode:
+bandwidth divided by weight and KV read traffic per evaluated position.
+Payload size is not automatically equal to this traffic.}
+
+\tabref{tab:token-bounds} additionally assumes \(D_W\approx M_W\), a
+full weight representation fetch per position, and neglects KV traffic
+for a short context.  Cache reuse, embedding lookups and representation
+details can invalidate this approximation.  Under these assumptions,
+replacing the DDR5 ceiling with the HBM ceiling changes the estimate by
+their nominal ratio, about 3.3; this is not a demonstrated placement gain.
+Data split across tiers requires separate traffic and path accounting.
+Sustainable bandwidth is lower than the interface peaks, and the runtime
+may achieve only part of it; measurements establish that utilization.
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\begin{tabularx}{\textwidth}{P{3.6cm}P{2.2cm}YY}
+\headrow
+\headcell{Model and precision} & \headcell{Weights} &
+\headcell{Ceiling from HBM (1\,TB/s)} &
+\headcell{Ceiling from DDR5 (307.2\,GB/s)} \\[3pt]
+\tabheadrule
+\tabstripeRow
+8B, BF16 & 16.1\,GB & 62\,tokens/s & 19\,tokens/s \\[3pt]
+
+\tabrowsep
+\tabplainRow
+8B, 4-bit & 4.9\,GB & 203\,tokens/s & 62\,tokens/s \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+70B, 4-bit & 42.5\,GB & 24\,tokens/s & 7.2\,tokens/s \\[3pt]
+
+\tabrowsep
+\tabplainRow
+70B, INT8 & 70.6\,GB & Does not fit one socket & 4.4\,tokens/s \\[3pt]
+\tabbottomrule
+\end{tabularx}
+\caption{Nominal single-socket upper bounds on the decode rate of one
+sequence, from \eqnref{eq:token-bound} assuming one full weight
+representation fetch per position and neglecting KV and other traffic.
+Splitting a model across both sockets can at most double a bound, and
+only if each socket reads its half locally.}
+\label{tab:token-bounds}
+\end{table}
+
+\subsection{Concurrency needed to reach the bandwidth}
+\label{sec:platform-concurrency}
+
+Little's law (\eqnref{eq:little}) converts these bandwidths into a
+demand on the cores.  The latency to use is the loaded latency of the
+platform, which the next chapter measures.  An optimistic lower bound
+follows from the idle latencies Ibeid et al.\ measured on a Xeon Max
+9470C, 134.9\,ns for HBM and 112.9\,ns for DDR5~\cite{ibeid2025aurora}.
+Sustaining the nominal 1\,TB/s of HBM against 134.9\,ns requires about
+135\,KB in flight, some 2{,}100 cache lines, or 38 per core across 56
+cores.  Sustaining DDR5's 307.2\,GB/s against 112.9\,ns requires about
+540 lines, or 10 per core.  Under load the latencies grow and so do both
+requirements.
+
+Thirty-eight outstanding lines per core is more than twice the 16 L1 fill
+buffers of a Golden Cove core and close to the 48 misses it can track in
+total (\secref{sec:xeon-max-cores}).  Approaching HBM bandwidth therefore
+needs nearly every core of the socket, with the L2 hardware prefetchers
+generating most of the requests, and an access pattern regular enough for
+them to predict.  The weight stream of decode is such a pattern; the
+dependent chain through the layers and the attention reads over a
+growing KV cache are less so.  Two consequences follow for the
+experiments.  The number of cores is a first-class factor, not a
+constant set to ``all cores''.  And a disappointing HBM result has to be
+explained by the bandwidth actually achieved before it is reported as an
+absence of effect.

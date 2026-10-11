@@ -1,0 +1,102 @@
+% Flat and Cache mode only; allocation choices and access paths are distinct.
+\begingroup
+\newcommand{\modecore}[1]{%
+ \begin{scope}[shift={(#1,0.65)}]
+  \foreach \p in {-0.4,0,0.4} {
+   \draw[draw=black!45] (\p,-0.55)--(\p,-0.7);
+   \draw[draw=black!45] (\p,0.55)--(\p,0.7);
+   \draw[draw=black!45] (-0.65,\p)--(-0.8,\p);
+   \draw[draw=black!45] (0.65,\p)--(0.8,\p);
+  }
+  \draw[hardware,rounded corners=2pt] (-0.65,-0.55) rectangle (0.65,0.55);
+  \foreach \x in {-0.4,0.05} \foreach \y in {-0.32,0.1}
+   \draw[draw=tabline,fill=white] (\x,\y) rectangle ++(0.35,0.24);
+ \end{scope}
+ \node[note,anchor=west] at (#1+1.0,0.65) {Cores};
+ \begin{scope}[shift={(#1,-0.95)}]
+  \draw[hardware,rounded corners=2pt] (-0.9,-0.4) rectangle (0.9,0.4);
+  \foreach \x in {-0.68,-0.23,0.22} \foreach \y in {-0.25,0.08}
+   \draw[draw=tabline,fill=white] (\x,\y) rectangle ++(0.37,0.2);
+ \end{scope}
+ \node[note,anchor=west] at (#1+1.08,-0.95) {CPU caches};
+ \draw[access] (#1,-0.09)--(#1,-0.53);
+}
+\newcommand{\modestack}[2]{%
+ \begin{scope}[shift={(#1,#2)}]
+  \foreach \dy in {0,0.22,0.44}
+   \draw[draw=hbmcol,fill=hbmcol!12,line width=0.65pt]
+    (-0.8,\dy)--(0.45,\dy)--(0.9,\dy+0.35)
+    --(-0.35,\dy+0.35)--cycle;
+  \foreach \dx in {-0.25,0.15,0.55}
+   \draw[draw=hbmcol!60] (\dx,0.46)--++(0.24,0.18);
+ \end{scope}
+}
+\newcommand{\modedimm}[2]{%
+ \begin{scope}[shift={(#1,#2)}]
+  \draw[draw=ddrcol,fill=ddrcol!8,rounded corners=1pt,line width=0.65pt]
+   (-1.1,-0.4) rectangle (1.1,0.4);
+  \foreach \dx in {-0.85,-0.2,0.45}
+   \draw[draw=ddrcol,fill=ddrcol!16] (\dx,-0.16) rectangle ++(0.43,0.42);
+  \foreach \dx in {-0.85,-0.6,-0.35,-0.1,0.15,0.4,0.65,0.9}
+   \draw[draw=ddrcol,line width=1pt] (\dx,-0.4)--(\dx,-0.54);
+ \end{scope}
+}
+\newcommand{\modeobjects}[2]{%
+ \begin{scope}[shift={(#1,#2)}]
+  \draw[draw=tabline,rounded corners=3pt,line width=0.65pt]
+   (-1.48,-0.73) rectangle (1.48,0.55);
+  \draw[draw=figcol,fill=figcol!8] (-1.05,-0.12) rectangle (-0.35,0.42);
+  \foreach \dx in {-0.82,-0.58}
+   \draw[draw=figcol!50] (\dx,-0.12)--(\dx,0.42);
+  \draw[draw=figcol!50] (-1.05,0.15)--(-0.35,0.15);
+  \foreach \dx in {0.38,0.62,0.86} \foreach \dy in {-0.1,0.18}
+   \draw[draw=ddrcol,fill=ddrcol!15] (\dx,\dy) rectangle ++(0.19,0.22);
+  \node[note] at (-0.7,-0.45) {Weights};
+  \node[note] at (0.72,-0.45) {KV};
+ \end{scope}
+}
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[
+ font=\small\sffamily,text=black!80,
+ hardware/.style={draw=tabline,fill=neutralcol,line width=0.65pt},
+ access/.style={-{Stealth[length=4pt,width=3pt]},draw=black!65,line width=0.85pt},
+ placement/.style={-{Stealth[length=4pt,width=3pt]},draw=black!55,dashed,line width=0.75pt},
+ note/.style={font=\footnotesize\sffamily,align=center},
+ heading/.style={font=\small\sffamily\bfseries,align=center}
+]
+\node[heading] at (2,2.05) {(a) Flat};
+\node[note,text=black!60] at (2,1.56) {Software-visible tiers};
+\node[heading] at (9.8,2.05) {(b) Cache};
+\node[note,text=black!60] at (9.8,1.56) {Hardware-managed HBM};
+\modecore{2}
+\modecore{9.8}
+\draw[draw=tabline,dashed] (5.9,1.85)--(5.9,-6.5);
+
+% Flat: two separate access paths, with no default tensor-to-tier assignment.
+\modestack{0}{-2.85}
+\modedimm{4}{-2.5}
+\node[note] at (0,-3.4) {HBM};
+\node[note] at (4,-3.4) {DDR};
+\draw[access] (2,-1.37)--(2,-1.73)--(0,-1.73)--(0,-2.02);
+\draw[access] (2,-1.73)--(4,-1.73)--(4,-2.06);
+\fill[black!65] (2,-1.73) circle (1.1pt);
+\modeobjects{2}{-4.9}
+\node[note,text=black!60] at (2,-4.05) {Backing-page placement};
+% Route alternatives outside the memory symbols and their labels.
+\draw[placement] (0.5,-4.75)--(-1.15,-4.75)--(-1.15,-2.6)--(-0.8,-2.6);
+\draw[placement] (3.5,-4.75)--(5.35,-4.75)--(5.35,-2.5)--(5.12,-2.5);
+
+% Cache: CPU caches are distinct from the memory-side HBM cache.
+\modestack{9.8}{-2.85}
+\modedimm{9.8}{-4.25}
+\node[note,anchor=west] at (10.92,-2.45) {HBM cache};
+\node[note,anchor=west] at (11.1,-4.25) {DDR};
+\draw[access] (9.8,-1.37)--(9.8,-2.02);
+\draw[access] (9.8,-2.87)--(9.8,-3.82);
+\node[note,anchor=west,text=black!60] at (10.23,-3.4) {HBM miss};
+\modeobjects{9.8}{-5.8}
+\draw[placement] (9.8,-5.23)--(9.8,-4.81);
+
+\end{tikzpicture}%
+}
+\endgroup

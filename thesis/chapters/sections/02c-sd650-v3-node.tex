@@ -1,0 +1,55 @@
+%======================================================================
+%  The node: Lenovo ThinkSystem SD650 V3
+%======================================================================
+
+\section{The SD650 V3 node}
+\label{sec:sd650-node}
+
+The processors are housed in Lenovo ThinkSystem SD650~V3 trays.  Each
+tray carries two independent dual-socket nodes, six trays share a 6U
+DW612S enclosure, and the unit that Slurm allocates is one
+node~\cite{lp1603}.  \figref{fig:sd650-internal} shows a tray.  The HBM
+is not visible in it: it sits inside the processor package under the
+cold plate, which is why its capacity is fixed per socket.
+
+\begin{figure}[htbp]
+\centering
+% Crop the border and drop shadow embedded in the source image.
+\includegraphics[width=0.94\textwidth,trim=6bp 27bp 27bp 6bp,clip]{sd650v3-internal-view.png}
+\caption{An SD650~V3 tray: two dual-socket nodes, each processor flanked
+by eight DIMM slots, all cooled by water through copper cold plates.
+Reproduced from the Lenovo ThinkSystem SD650~V3 product
+guide~\cite{lp1603}.}
+\label{fig:sd650-internal}
+\end{figure}
+
+The node is cooled by direct water cooling, without fans.  This supports
+sustained all-core load in a dense enclosure, but it does not fix the
+clock frequency: the package power limit and the frequency reductions
+for vector and matrix code still apply (\secref{sec:xeon-max-peaks}).
+Frequency is therefore recorded during every measurement rather than
+assumed.
+
+\paragraph{Power telemetry.}  The SD650~V3 has an XClarity management
+controller and a TI INA226-based power meter that can sample at
+100\,Hz~\cite{lp1603}.  On CRESCO8 these are administrative interfaces.
+What a user can actually read was established on an allocated node:
+
+\begin{itemize}
+  \item \textbf{Slurm energy accounting} uses the IPMI plugin with a
+        60-second sampling interval.  It reports whole-node energy for a
+        job and the node's current and average power; an idle HBM node
+        reported about 390\,W.
+  \item \textbf{RAPL} package and DRAM energy counters exist but are
+        readable only by root: reading \texttt{energy\_uj} under
+        \texttt{/sys/class/powercap} fails with a permission error.
+  \item \textbf{Model-specific registers} and therefore
+        \texttt{turbostat} are likewise restricted to root.
+\end{itemize}
+
+The only energy measurement available to the experiments is consequently
+whole-node energy at one-minute granularity.  It cannot separate
+processor from memory power, nor attribute energy to an inference phase
+shorter than a minute.  Energy per token is therefore outside the scope
+of the measurements unless the administrators grant RAPL access, and
+this chapter makes no energy claims.

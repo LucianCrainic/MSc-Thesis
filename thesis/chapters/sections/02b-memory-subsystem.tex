@@ -1,0 +1,398 @@
+%======================================================================
+%  Memory subsystem: HBM2e, DDR5, memory modes and clustering
+%======================================================================
+
+\section{The memory subsystem}
+\label{sec:xeon-max-platform}
+
+Each Max 9480 socket has two local memory systems.  Eight DDR5 channels
+attach conventional DIMMs, and four HBM2e stacks sit inside the package.
+On the CRESCO8 HBM nodes every DDR5 channel holds one 64\,GB DIMM: the
+EDAC labels list one DIMM on each of the eight channels of each socket,
+so all channels are populated at one DIMM per channel and may run at the
+full DDR5-4800 rate.  A socket therefore has 512\,GB of DDR5 behind
+64\,GB of HBM, a capacity ratio of 8:1.  The idea of a small,
+fast, on-package memory in front of a large DDR tier is not new; the
+Knights Landing processor offered the same Flat and Cache choice for its
+MCDRAM~\cite{peng2017hybridmemory}.  What is new for inference is that
+the tier is attached to cores with AMX.
+
+\subsection{Two local tiers and three access paths}
+\label{sec:memory-hierarchy}
+
+HBM and DDR5 trade different resources.  HBM offers several times the
+bandwidth of DDR5 (\tabref{tab:xeon-max-peaks}); DDR5 offers eight times
+the capacity and a lower unloaded latency.  HBM is therefore not simply
+``faster memory''.  Its bandwidth is useful only when two conditions
+hold together: the workload issues enough concurrent requests to
+approach that bandwidth, and the bandwidth-critical data is local to the
+cores that read it.
+
+Every result must therefore name the access path it exercised:
+
+\begin{itemize}
+  \item \textbf{local HBM or local DDR5}, reached from cores on the same
+        socket;
+  \item \textbf{remote memory}, reached through UPI from the other
+        socket; and
+  \item \textbf{mixed placement}, in which pages, threads or model
+        objects span several locality domains.
+\end{itemize}
+
+An apparently node-wide 128\,GB of HBM is consequently two 64\,GB local
+tiers.  A workload uses the aggregate capacity and bandwidth only if its
+data and threads are balanced across the sockets.
+\tabref{tab:storage-levels} summarises the levels visible to one socket
+and, for each, what decides its contents.
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\begin{tabularx}{\textwidth}{P{2.3cm}P{3.3cm}P{3.3cm}Y}
+\headrow
+\headcell{Level} & \headcell{Capacity} & \headcell{Contents decided by} &
+\headcell{Role in inference} \\[3pt]
+\tabheadrule
+\tabstripeRow
+L1 data & 48\,KB per core & Hardware & Operands of the inner kernel
+  loop. \\[3pt]
+
+\tabrowsep
+\tabplainRow
+L2 & 2\,MB per core & Hardware & Kernel tiles and activations. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+Last-level cache & 112.5\,MB, shared & Hardware & Smaller than any
+  model's weights; reuse within a step. \\[3pt]
+
+\tabrowsep
+\tabplainRow
+HBM2e & 64\,GB, four stacks & Software in Flat and HBM-only mode;
+  hardware in Cache mode & Bandwidth tier. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+DDR5 & 512\,GB, eight 64\,GB DIMMs on CRESCO8 & Software & Capacity
+  tier. \\[3pt]
+
+\tabrowsep
+\tabplainRow
+Remote memory & The other socket's tiers & Software, through thread
+  and page binding & Reached over UPI; avoided by binding. \\[3pt]
+\tabbottomrule
+\end{tabularx}
+\caption{Storage levels visible to one Max 9480 socket on a CRESCO8 HBM
+node.  Cache capacities are those reported by \texttt{lscpu} on the
+allocated node~\cite{intel9480}.}
+\label{tab:storage-levels}
+\end{table}
+
+Published STREAM measurements show both the size of the bandwidth gap
+and how much it varies between systems.  Na et al.\ report 588\,GB/s for
+HBM and 233.8\,GB/s for DDR5 on a Xeon Max 9468
+socket~\cite{na2024llmcpu}; Ibeid et al.\ report 680--840\,GB/s and
+235--245\,GB/s on a Xeon Max 9470C~\cite{ibeid2025aurora}.  Neither
+processor is the 9480, and the HBM figures differ by more than 15\%
+between them.  The bandwidth of the CRESCO8 nodes is therefore measured
+directly, in both Flat and Cache mode, in the next chapter.
+
+\subsection{HBM memory modes}
+\label{sec:hbm-modes}
+
+The four HBM2e stacks are present in every package, but software does
+not necessarily see them as memory.  The firmware's \emph{memory
+hierarchy} setting gives HBM one of three roles: the only main memory, a
+separately addressable tier beside DDR5, or a hardware-managed cache in
+front of DDR5 (\figref{fig:hbm-modes}).  The setting is fixed at boot.
+It is a property of the node, not a policy that a batch job can
+select~\cite{lp1738,intelmaxtuning}.
+
+\begin{figure}[htbp]
+\centering
+\begingroup
+\definecolor{modeink}{HTML}{263445}
+\definecolor{modeblue}{HTML}{365D85}
+\colorlet{modeaccent}{sapred}
+\definecolor{modeborder}{HTML}{CBD5DF}
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\small\sffamily, text=modeink,
+  card/.style={line width=0.65pt, rounded corners=4pt, align=center,
+               inner xsep=5pt, inner ysep=7pt},
+  panel/.style={card, draw=modeborder, fill=white,
+                minimum width=4.35cm, minimum height=5.15cm},
+  cpu/.style={card, draw=modeborder, fill=modeink!3,
+              minimum width=3.7cm, minimum height=0.85cm},
+  hbm/.style={card, draw=modeaccent, fill=modeaccent!9,
+              text width=3.3cm, minimum width=3.7cm,
+              minimum height=1.2cm},
+  ddr/.style={hbm, draw=modeblue, fill=modeblue!9},
+  absent/.style={card, draw=modeborder, densely dashed,
+                 text=modeink!55, fill=modeink!1,
+                 text width=3.3cm, minimum width=3.7cm,
+                 minimum height=1.2cm},
+  summary/.style={card, draw=modeborder, fill=modeink!3,
+                  font=\footnotesize\sffamily, text width=3.95cm,
+                  minimum width=4.35cm, minimum height=1.65cm},
+  link/.style={{Stealth[length=5pt,width=4pt]}-{Stealth[length=5pt,width=4pt]},
+               line width=0.8pt, draw=modeink!75},
+  note/.style={font=\footnotesize\sffamily, text=modeink!80, align=center}
+]
+  \foreach \x in {0,4.85,9.7} {
+    \node[panel] at (\x,0.6) {};
+  }
+  \node[font=\small\sffamily\bfseries] at (0,3.95) {HBM-only};
+  \node[font=\small\sffamily\bfseries] at (4.85,3.95) {Flat (1LM)};
+  \node[font=\small\sffamily\bfseries] at (9.7,3.95) {Cache (2LM)};
+  \node[note] at (0,3.5) {HBM is the only main memory};
+  \node[note] at (4.85,3.5) {Two separate main-memory tiers};
+  \node[note] at (9.7,3.5) {HBM is a cache for DDR5};
+
+  \node[cpu] (c0) at (0,2.5) {\textbf{CPU cores}};
+  \node[cpu] (c1) at (4.85,2.5) {\textbf{CPU cores}};
+  \node[cpu] (c2) at (9.7,2.5) {\textbf{CPU cores}};
+
+  % HBM-only: one connected, allocatable tier.  DDR5 is not used.
+  \node[hbm] (h0) at (0,0.7)
+    {\textbf{HBM}\\{\footnotesize 64\,GB main memory}};
+  \node[absent] at (0,-1.0)
+    {\textbf{DDR5}\\{\footnotesize not used / not visible}};
+  \draw[link, draw=modeaccent] (c0.south) -- (h0.north);
+
+  % Flat: independent, parallel paths to two allocatable NUMA regions.
+  % Side-by-side placement avoids suggesting that DDR5 is behind HBM.
+  \node[hbm, text width=1.55cm, minimum width=1.85cm] (h1) at (3.8,0.7)
+    {\textbf{HBM}\\{\footnotesize 64\,GB}};
+  \node[ddr, text width=1.55cm, minimum width=1.85cm] (d1) at (5.9,0.7)
+    {\textbf{DDR5}\\{\footnotesize RAM}};
+  \draw[link, draw=modeaccent] ($(c1.south)+(-1.05,0)$) -- (h1.north);
+  \draw[link, draw=modeblue] ($(c1.south)+(1.05,0)$) -- (d1.north);
+  \node[note, text width=3.7cm] at (4.85,-1.0)
+    {Separate NUMA regions.\\Software chooses the tier\\for each allocation.};
+
+  % Cache: HBM is a transparent memory-side cache, not a RAM allocation target.
+  \node[hbm, densely dashed] (h2) at (9.7,0.7)
+    {\textbf{HBM cache}\\{\footnotesize 64\,GB; not allocatable}};
+  \node[ddr] (d2) at (9.7,-1.0)
+    {\textbf{DDR5}\\{\footnotesize main memory}};
+  \draw[link, draw=modeaccent] (c2.south) -- (h2.north)
+    node[midway, right, note, xshift=3pt] {lookup};
+  \draw[link, draw=modeblue] (h2.south) -- (d2.north)
+    node[midway, right, note, xshift=3pt] {miss / fill};
+
+  % Identical summary rows make visibility, capacity and control comparable.
+  \node[summary] at (0,-3.0)
+    {\textbf{OS sees:} HBM only\\
+     \textbf{RAM:} 64\,GB\\
+     \textbf{Placement:} HBM only};
+  \node[summary] at (4.85,-3.0)
+    {\textbf{OS sees:} HBM + DDR5\\
+     \textbf{RAM:} 64\,GB + DDR5\\
+     \textbf{Placement:} software};
+  \node[summary] at (9.7,-3.0)
+    {\textbf{OS sees:} DDR5 only\\
+     \textbf{RAM:} DDR5 capacity\\
+     \textbf{Placement:} hardware};
+\end{tikzpicture}%
+}
+\endgroup
+\caption{The three Xeon Max memory modes, shown for one socket.  Solid
+memory cards denote allocatable RAM; the dashed HBM card in Cache mode is
+a transparent, hardware-managed cache whose capacity is not added to RAM.
+Capacities are nominal; the paths are conceptual and omit the CPU's
+internal caches~\cite{lp1603,lp1738,intelmaxtuning}.}
+\label{fig:hbm-modes}
+\end{figure}
+
+\begin{description}
+  \item[HBM-only mode.] HBM is the only main memory and DDR5 is absent
+  from the operating system's address space.  Lenovo documents this
+  topology for nodes without installed DDR5~\cite{lp1738}.  Applications
+  need no placement mechanism, but the operating system, services and
+  jobs share 64\,GB per socket.  It is the simplest route to HBM
+  bandwidth when the whole workload fits.
+
+  \item[Flat mode (1LM).] HBM and DDR5 are separate NUMA nodes.  Both
+  capacities are available, and software can put a bandwidth-critical
+  object in HBM while leaving colder data in DDR5.  That control is also
+  an obligation: threads and pages must be bound with \texttt{numactl},
+  libnuma or \texttt{mbind}, and actual residency must be verified,
+  because first touch, page migration and file-backed mappings can place
+  pages elsewhere.  Exposing the HBM nodes on Linux needs a second,
+  per-boot administrative step that converts the HBM DAX devices to
+  system RAM (\appref{app:flat-mode-setup}).
+
+  \item[Cache mode (2LM).] Software sees only DDR5; HBM acts as a
+  memory-side cache in front of it.  Unmodified programs benefit and the
+  full DDR5 capacity is usable, but software cannot reserve HBM for
+  particular data.  This is the mode of the regular CRESCO8 HBM
+  partitions, and \secref{sec:cache-mode} describes it in detail.
+\end{description}
+
+The choice follows the working set and the control the software has
+over placement.  HBM-only removes tier selection when everything fits;
+Flat gives an HBM-aware program deterministic control over the hot set;
+Cache gives the same large capacity with a transparent policy.  For
+comparing the two tiers, Flat mode is the strongest design, because local
+HBM and local DDR5 can be compared on the same socket without changing
+the processor or the executable.  A Flat-versus-Cache comparison answers
+a different question: explicit placement against a hardware cache policy.
+
+\subsection{Cache mode in detail}
+\label{sec:cache-mode}
+
+The firmware describes the cache to the operating system through the
+ACPI Heterogeneous Memory Attribute Table, and Linux exposes the
+description in sysfs~\cite{linuxnumaperf}.  On the allocated CRESCO8 node
+each DDR5 NUMA node reports a memory-side cache of 64\,GiB with 64-byte
+lines, direct-mapped and write-back, and \texttt{lstopo} shows a 64\,GB
+\texttt{MemCache} object above each 503\,GB NUMA node.  Each socket's
+cache holds lines of its own socket's DDR5 only.  A thread that reads the
+other socket's memory crosses UPI and is served by that socket's cache.
+
+The mechanics follow from those attributes.  A read that hits is served
+from HBM.  A miss reads the line from DDR5, returns it to the core, and
+installs it in HBM; if the evicted line is dirty, it is first written
+back to DDR5~\cite{intelmaxoverview}.  With 512\,GB of DDR5 behind 64\,GB
+of cache, eight DDR5 lines compete for every cache slot, and because the
+cache is direct-mapped each line has exactly one slot, selected by its
+physical address.  Two consequences matter for measurement:
+
+\begin{itemize}
+  \item \textbf{A working set larger than the cache can be worse than no
+        cache.}  Streaming beyond the capacity turns most accesses into
+        misses, and every miss adds an HBM fill and possibly a write-back
+        to the DDR5 traffic.  Effective bandwidth is therefore a property
+        of the working-set size, and the next chapter measures it as
+        such.
+  \item \textbf{Fitting is a matter of physical pages, not only of
+        size.}  Two hot pages whose physical addresses map to the same
+        slots evict each other even when the total working set is below
+        64\,GB.  The physical pages the kernel hands out vary from run to
+        run, so conflict misses add run-to-run variance.  Measurements
+        therefore need a warm-up pass, repetition across separate
+        allocations, and a hot set comfortably below the capacity.
+\end{itemize}
+
+Cache mode does not prevent studying HBM for inference; it changes what
+can be compared.  An 8-billion-parameter model in BF16 has about 16\,GB of
+weights.  After warm-up, decode can stream those weights from the HBM
+cache, so the same program run with a footprint below and above 64\,GB
+per socket provides an HBM-versus-DDR contrast on any node of the
+regular partitions.  What Cache mode cannot provide is object-level
+control: weights or KV blocks cannot be pinned in HBM, cold data cannot
+be excluded, and there is no DDR-only run with the same footprint on the
+same node.  Those contrasts require the Flat-mode node.
+
+The cache's hit rate is not directly observable by an ordinary user.  The
+nodes run with \texttt{perf\_event\_paranoid} set to 2, which restricts
+unprivileged users to their own processes' core events, and the uncore
+memory-controller counters that would distinguish HBM from DDR5 traffic
+are therefore unavailable (\secref{sec:cresco8-observed}).  Unless the
+administrators grant counter access, residency in the cache has to be
+inferred from working-set sweeps such as those of the next chapter.
+
+\subsection{Clustering and NUMA}
+\label{sec:hbm-clustering}
+
+Memory mode is only the first configuration axis.  An independent
+firmware setting decides how finely each socket is partitioned.  With
+sub-NUMA clustering disabled, a setting Lenovo calls \emph{Quadrant},
+the socket is one locality domain and addresses are interleaved across
+all four tiles.  SNC4 exposes each tile, with its 14 cores, its share of
+the last-level cache and its two DDR5 channels, as a separate NUMA domain
+(\figref{fig:node-locality}).  When HBM is visible as memory, each tile's
+16\,GB stack also becomes a separate node: in Flat mode these are
+additional memory-only nodes, whereas in Cache mode they remain hidden.
+SNC4 can raise local bandwidth for a NUMA-aware program, but it reduces
+the largest local HBM allocation from 64\,GB to 16\,GB and creates more
+ways to access memory remotely~\cite{lp1738,intelmaxtuning}.
+
+Crossing three memory modes with two clustering modes gives the six
+configurations in \tabref{tab:hbm-six-configurations}.  The NUMA counts
+are for a complete dual-socket node, the unit allocated on CRESCO8, and
+describe Flat mode after its DAX devices have been converted to system
+RAM.  The axes are independent: every memory mode can be paired with
+either clustering mode, so an experiment must report both.
+
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\begin{tabularx}{\textwidth}{P{1.8cm}P{1.95cm}P{4.0cm}Y}
+\headrow
+\headcell{Memory mode} & \headcell{Cluster\-ing} &
+\headcell{Visible topology (two sockets)} &
+\headcell{Operational consequence} \\[3pt]
+\tabheadrule
+\tabstripeRow
+HBM-only & Quadrant
+  & 2 HBM nodes: one 64\,GB node per socket
+  & Bind work per socket; all software consumes HBM. \\[3pt]
+
+\tabrowsep
+\tabplainRow
+HBM-only & SNC4
+  & 8 HBM nodes: four 16\,GB nodes per socket
+  & Bind each worker and its allocation to the same tile. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+Flat & Quadrant
+  & 4 nodes: two DDR5 nodes with CPUs and two 64\,GB HBM memory-only nodes
+  & Select the tier explicitly and pair each HBM node with cores on its
+    local socket.  \textbf{Available on one CRESCO8 node.} \\[3pt]
+
+\tabrowsep
+\tabplainRow
+Flat & SNC4
+  & 16 nodes: eight DDR5 nodes with CPUs and eight 16\,GB HBM memory-only
+    nodes
+  & Select the tier and the matching tile; a misplaced page can be local
+    to the socket but remote to the worker. \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+Cache & Quadrant
+  & 2 DDR5 nodes, one per socket; HBM is hidden
+  & Bind by socket; HBM contents are hardware-managed.  \textbf{Regular
+    CRESCO8 HBM partitions.} \\[3pt]
+
+\tabrowsep
+\tabplainRow
+Cache & SNC4
+  & 8 DDR5 nodes, four per socket; HBM is hidden
+  & Bind by tile; software still cannot choose what HBM holds. \\[3pt]
+\tabbottomrule
+\end{tabularx}
+\caption{The six Xeon Max memory configurations and their OS-visible
+NUMA topology on a dual-socket node.  ``Memory-only'' means a NUMA node
+with capacity but no CPUs.  Node identifiers are assigned at boot and
+must be read from the running system.  Synthesised from Lenovo's mode
+and topology diagrams~\cite{lp1738}.}
+\label{tab:hbm-six-configurations}
+\end{table}
+
+Flat mode is unforgiving because the HBM nodes it creates have no CPUs.
+A default allocation by a thread on a CPU-bearing node lands in DDR5, and
+selecting an HBM node without selecting the cores nearest to it creates
+remote traffic.  A valid Flat experiment reads \texttt{numactl
+-{}-hardware}, derives the CPU--HBM pairing from the distance matrix, binds
+both threads and memory, and then verifies page residency.  The batch
+system must also permit the binding.  In the regular CRESCO8 partitions
+the cgroup of a job contains every NUMA node of the machine:
+\texttt{cpuset.mems.effective} was \texttt{0-1} both for an exclusive
+node and for an earlier 56-core allocation.  The Flat-mode node is not
+allocated through these partitions (\secref{sec:cresco8-observed}), so
+the question of whether a Slurm cpuset would admit its memory-only HBM
+nodes does not arise for the experiments.
+
+Lenovo's STREAM tests on an SD650~V3 with Max 9480 processors show how
+large the binding effect is: in Flat and Quadrant mode, explicit binding
+doubled the bandwidth of the unbound run~\cite{lp1738}.  The best
+clustering mode also depends on the software.  Ibeid et al.\ obtain their
+highest STREAM bandwidth with SNC4 and explicit locality, whereas Na et
+al.\ observe worse inference performance and more remote traffic under
+SNC4~\cite{ibeid2025aurora,na2024llmcpu}.

@@ -1,11 +1,26 @@
 \chapter{Experimental Platform}
 \label{chap:experimental-platform}
 
-The preceding chapter described what the Xeon Max platform can support.
-This chapter records the documented CRESCO8 configuration, distinguishes
-documentation from observations that must be captured on the allocated
-nodes, and states the constraints that the platform imposes on the study.
+The experiments run on Intel Xeon CPU Max 9480 processors installed in
+Lenovo ThinkSystem SD650~V3 nodes of the CRESCO8 cluster.  This chapter
+describes that platform from the processor outwards.  It begins with the
+processor's tiles, cores, caches and instruction sets, then its two
+local memory systems and the firmware modes that decide how software
+sees them.  It continues with the node that houses two processors and
+with the cluster that provides access to it, including the configuration
+actually observed on the HBM nodes.  It closes by deriving, from the
+specification alone, what the platform implies for LLM inference.  The
+measured limits of the hardware are the subject of the next chapter, and
+the behaviour of real inference back ends on it of the chapter after.
 
+\input{chapters/sections/02-xeon-max-processor}
+\FloatBarrier
+\input{chapters/sections/02b-memory-subsystem}
+\FloatBarrier
+\input{chapters/sections/02c-sd650-v3-node}
+\FloatBarrier
 \input{chapters/sections/03-cresco8-cluster}
+\FloatBarrier
+\input{chapters/sections/03b-platform-llm}
 
 \cleardoublepage
