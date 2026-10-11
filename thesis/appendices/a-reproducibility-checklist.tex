@@ -1,49 +1,106 @@
 \chapter{Reproducibility Checklist}
 \label{app:reproducibility}
 
-This appendix records the operational material needed to reproduce the
-platform qualification in \secref{sec:first-allocation}.  It is separated
-from the main platform chapter because the commands support the argument
-but are not part of its theoretical development.
+This appendix records the operational material behind the observed
+platform configuration in \secref{sec:cresco8-observed}.  It is
+separated from the platform chapter because the commands support the
+argument but are not part of it.  The hardware measurement campaigns,
+with their kernels, scripts and raw records, and the platform record
+described below are maintained in a separate repository, which is the
+single source for both~\cite{hwbench2026}.
 
-\section{Topology-capture skeleton}
+\section{Configuration probes}
+\label{app:configuration-probes}
 
-The first HBM allocation should create a machine-readable system
-manifest.  The following script is a topology-capture skeleton rather
-than a performance benchmark; account names, available utilities and
-Slurm resource syntax must be checked on the live system.
+Every item of \tabref{tab:cresco8-manifest} is read by an ordinary user
+inside an exclusive allocation, without root privileges, on the
+execution node itself.  The benchmark suite's system snapshot performs
+these reads at the start of every campaign and stores them as a
+structured platform record next to the topology map, together with the
+\texttt{lstopo} capture of \figref{fig:cresco8-lstopo}.
+\tabref{tab:configuration-probes} lists the source of each item, so that
+the observation can be repeated on any later date or node.
 
-\begin{lstlisting}[style=shell,
-  caption={Minimal exclusive allocation for a CRESCO8 topology
-  manifest.}]
-#!/bin/bash
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=112
-#SBATCH --partition=cresco8_hbm
-#SBATCH --exclusive
-#SBATCH --hint=nomultithread
-#SBATCH --output=%j-system.txt
+\begin{table}[htbp]
+\centering
+\small
+\tabsetup
+\begin{tabularx}{\textwidth}{P{3.0cm}Y}
+\headrow
+\headcell{Item} & \headcell{Command or kernel interface} \\[3pt]
+\tabheadrule
+\tabstripeRow
+Topology
+ & \texttt{lstopo}, \texttt{numactl -{}-hardware}, \texttt{lscpu},
+   \texttt{lscpu -C} \\[3pt]
 
-set -u
+\tabrowsep
+\tabplainRow
+Memory-side cache
+ & \texttt{/sys/devices/system/node/node*/\allowbreak memory\_side\_cache/\allowbreak index*/}
+   \{\texttt{size}, \texttt{line\_size}, \texttt{indexing},
+   \texttt{write\_policy}\} \\[3pt]
 
-echo "job_id=${SLURM_JOB_ID}"
-echo "host=$(hostname)"
-date --iso-8601=seconds
-scontrol show job "${SLURM_JOB_ID}"
-lscpu
-lscpu --extended
-numactl --hardware
-lstopo-no-graphics 2>/dev/null || true
-cat /sys/devices/system/cpu/smt/active 2>/dev/null || true
-findmnt -t lustre 2>/dev/null || true
-module list 2>&1 || true
-\end{lstlisting}
+\tabrowsep
+\tabstripeRow
+DIMM population
+ & \texttt{/sys/devices/system/edac/\allowbreak mc/mc*/dimm*/}\{\texttt{size},
+   \texttt{dimm\_label}\} \\[3pt]
+
+\tabrowsep
+\tabplainRow
+Threads and frequency
+ & \texttt{/sys/devices/system/cpu/smt/active};
+   \texttt{/sys/devices/system/cpu/cpu0/\allowbreak cpufreq/}\{\texttt{scaling\_driver},
+   \texttt{scaling\_governor}\}; \texttt{/proc/cmdline} \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+Page policy
+ & \texttt{/proc/sys/kernel/numa\_balancing},
+   \texttt{/proc/sys/vm/zone\_reclaim\_mode},
+   \texttt{/sys/kernel/mm/numa/demotion\_enabled},
+   \texttt{/sys/kernel/mm/transparent\_hugepage/}\{\texttt{enabled},
+   \texttt{defrag}\} \\[3pt]
+
+\tabrowsep
+\tabplainRow
+Counters and energy
+ & \texttt{/proc/sys/kernel/perf\_event\_paranoid};
+   \texttt{/sys/class/powercap/intel-rapl:0/energy\_uj};
+   \texttt{/dev/cpu/0/msr}; \texttt{scontrol show node} for Slurm's
+   energy fields \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+Job cgroup
+ & \texttt{cpuset.mems.effective} under the job's path in
+   \texttt{/sys/fs/cgroup}, found from \texttt{/proc/self/cgroup} \\[3pt]
+
+\tabrowsep
+\tabplainRow
+Network and storage
+ & \texttt{ibstat}; \texttt{lsblk}; \texttt{df -hT} on \texttt{/tmp},
+   \texttt{/dev/shm} and the Lustre mount \\[3pt]
+
+\tabrowsep
+\tabstripeRow
+Scheduler
+ & \texttt{sinfo}, \texttt{scontrol show partition},
+   \texttt{scontrol show config}, \texttt{sacctmgr show qos} \\[3pt]
+\tabbottomrule
+\end{tabularx}
+\caption{Sources of the observed configuration items.  All are readable
+without root privileges; the RAPL and MSR entries are listed because
+their \emph{unreadability} is the observation.}
+\label{tab:configuration-probes}
+\end{table}
 
 \section{Minimum platform record}
+\label{app:platform-record}
 
-The manifest should be extended, subject to permissions, with the
-evidence in \tabref{tab:platform-record}.
+Each reported measurement carries, in addition, the record in
+\tabref{tab:platform-record}.
 
 \begin{table}[htbp]
 \centering
@@ -60,21 +117,20 @@ Identity
 \tabrowsep
 \tabplainRow
 Processor
- & Exact SKU, sockets, physical cores, SMT state, microcode, governor,
-   turbo policy and observed frequency. \\[3pt]
+ & Exact SKU, sockets, physical cores, SMT state, microcode, governor
+   and frequency sampled during the run. \\[3pt]
 
 \tabrowsep
 \tabstripeRow
 Memory
  & Memory and clustering modes, NUMA distance matrix, HBM and DDR
-   node IDs, DIMM population, huge-page state and measured local/remote
-   bandwidth. \\[3pt]
+   node IDs, huge-page state and verified page residency. \\[3pt]
 
 \tabrowsep
 \tabplainRow
 I/O
- & Lustre mount and striping used for model loading; NIC identity and
-   NUMA affinity if multi-node tests are attempted. \\[3pt]
+ & Location of the model file and how it was loaded (staged copy,
+   memory map or anonymous memory). \\[3pt]
 
 \tabrowsep
 \tabstripeRow
@@ -85,10 +141,32 @@ Software
 \tabrowsep
 \tabplainRow
 Telemetry
- & Available RAPL, performance-counter and management-controller
-   interfaces, including permissions and measurement boundaries. \\[3pt]
+ & Counter and energy interfaces used, with their permissions and
+   measurement boundaries. \\[3pt]
 \tabbottomrule
 \end{tabularx}
 \caption{Minimum platform record for an inference result.}
 \label{tab:platform-record}
 \end{table}
+
+\section{Exposing HBM in Flat mode}
+\label{app:flat-mode-setup}
+
+Flat mode needs two configuration stages on Linux.  The firmware must
+first select \emph{Flat} under \emph{Memory Hierarchy}.  After boot, the
+HBM is presented as DAX devices rather than as memory, and each device
+must be converted to system RAM before it appears as an allocatable
+memory-only NUMA node~\cite{lp1738}:
+
+\begin{lstlisting}[style=shell,
+  caption={Converting the HBM DAX devices of a Flat-mode node to system
+  RAM.  Requires root; device names are read from the running system.}]
+daxctl list                      # one device per HBM NUMA node
+daxctl reconfigure-device --mode=system-ram all
+numactl --hardware               # HBM nodes now listed, without CPUs
+\end{lstlisting}
+
+On Lenovo's dual-socket example this involves two devices with Quadrant
+clustering and eight with SNC4.  The conversion does not persist across
+reboots, so it belongs in the node's administrator-managed start-up
+configuration rather than in a user's job~\cite{lp1738}.

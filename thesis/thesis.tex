@@ -99,6 +99,7 @@
 \newcommand{\eqnref}[1]{\hyperref[#1]{\textcolor{eqcol}{Equation~\ref*{#1}}}}
 \newcommand{\secref}[1]{\hyperref[#1]{\textcolor{seccol}{Section~\ref*{#1}}}}
 \newcommand{\chapref}[1]{\hyperref[#1]{\textcolor{seccol}{Chapter~\ref*{#1}}}}
+\newcommand{\appref}[1]{\hyperref[#1]{\textcolor{seccol}{Appendix~\ref*{#1}}}}
 \newcommand{\eqcaption}[1]{%
   \par\vspace{-2pt}%
   \begingroup
@@ -181,7 +182,7 @@
 \advisor{Prof. Salvatore Pontarelli}
 \coadvisor{Prof. Daniele De Sensi\\[1mm]Dr. Marco Faltelli}
 \authoremail{crainic.lucian@gmail.com}
-\copyyear{20xx}
+\copyyear{2027}
 \thesistype{Master's Thesis}
 
 % ================== DOCUMENT ==================
@@ -190,11 +191,13 @@
 \lstset{language=Python}
 
 \frontmatter
+% Avoid blank verso pages around the abstract and other front matter.
+\let\cleardoublepage\clearpage
 
 \maketitle
 
 % ================== QUOTATION ==================
-\dedication{\input{front-matter/quotation}}
+% \dedication{\input{front-matter/quotation}}
 % ================== ABSTRACT ==================
 
 \input{front-matter/abstract}
@@ -202,18 +205,17 @@
 \tableofcontents
 
 \mainmatter
-\let\cleardoublepage\clearpage
 % ================== CHAPTERS ==================
+\input{chapters/00-introduction}
 \input{chapters/01-theoretical-background}
 \input{chapters/02-experimental-platform}
-\input{chapters/04-methodology}
 
 % ================== APPENDICES ==================
-\appendix
-\input{appendices/a-reproducibility-checklist}
+% \appendix
+% \input{appendices/a-reproducibility-checklist}
 
 % ================== ACKNOWLEDGMENTS ==================
-\input{front-matter/acknowledgements}
+% \input{front-matter/acknowledgements}
 
 \backmatter
 \cleardoublepage

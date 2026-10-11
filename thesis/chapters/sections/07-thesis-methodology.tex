@@ -13,10 +13,10 @@ software can place weights and KV blocks in HBM or DDR5 and can schedule
 work against both tiers.  In Cache mode, HBM is a hardware-managed cache
 for DDR5, so the same object-level placement policies cannot be applied.
 The questions in \tabref{tab:research-questions} are provisional until
-the literature review and platform configuration have been checked.
-The September 2026 CRESCO8 check found Cache mode.  Flat-mode
-experiments therefore require an administrator-provided configuration;
-the Cache-mode question remains executable on the observed nodes.
+the literature review has been revised.  The regular CRESCO8 HBM
+partitions run in Cache mode, and one dedicated node runs in Flat mode
+(\secref{sec:cresco8-observed}), so both the Flat-mode questions and the
+Cache-mode question can be executed.
 
 \begin{table}[htbp]
 \centering
@@ -95,8 +95,24 @@ placement between local HBM and local DDR5 in Flat mode.  It calibrates
 the tier effect; it is not the whole thesis question.  The next contrast
 uses the same total core count and memory budget to compare sequential
 and concurrent access to both tiers, followed by object-level placement
-policies.  A Flat--Cache comparison, if possible, is a comparison of
+policies.  A Flat--Cache comparison is a comparison of
 memory-management modes rather than an isolated tier effect.
+
+The platform admits three comparisons, and they do not have equal
+evidential strength:
+
+\begin{enumerate}
+  \item \textbf{Local HBM against local DDR5 on the same Max 9480
+        socket}, on the Flat-mode node, is the primary comparison.
+        Processor, cores, executable and firmware are held constant.
+  \item \textbf{One socket against two, or Quadrant against SNC4}, tests
+        the runtime's response to topology.  It is a placement
+        experiment, not a memory-technology comparison.
+  \item \textbf{Max 9480 against Platinum 8592+} is a system-level
+        baseline only.  The processors differ in generation, core count,
+        memory speed and, above all, last-level cache (112.5 against
+        320\,MB), so the contrast cannot identify an HBM effect.
+\end{enumerate}
 
 \subsection{Experimental sequence}
 
@@ -139,22 +155,24 @@ stable, in the dependency order drawn in
 
 \begin{description}
   \item[Stage 0: system manifest.] Record the items in
-  \tabref{tab:platform-record}, identify active memory and clustering
-  modes, and request a Flat-mode block if available.  Only in Flat mode
-  identify separate HBM and DDR NUMA nodes.
+  \tabref{tab:platform-record} and identify the active memory and
+  clustering modes.  On the Flat node, identify the HBM and DDR NUMA
+  nodes from the running system.
 
-  \item[Stage 1: memory characterization.] Measure local and remote read,
-  copy and triad bandwidth; unloaded and loaded latency; core-count
-  scaling; and concurrent HBM--DDR traffic.  Establish saturation and
-  run-to-run variability before fitting a performance model.
+  \item[Stage 1: hardware characterization.] Measure sustainable
+  bandwidth of each tier and of Cache mode as a function of working set,
+  latency, core-count scaling, compute ceilings and concurrent HBM--DDR
+  traffic, and build the measured Rooflines.  This stage is carried out
+  with a dedicated benchmark suite~\cite{hwbench2026} and reported in its
+  own chapter.
 
-  \item[Stage 2: inference tier calibration, when Flat is available.]
+  \item[Stage 2: inference tier calibration on the Flat node.]
   Freeze runtime commits,
   compiler and build.  Separate prefill from decode and compare verified
   local HBM and DDR placement.  Measure serial and concurrent access to
   both tiers with the same total core count and byte traffic.
 
-  \item[Stage 3: object placement and capacity, when Flat is available.]
+  \item[Stage 3: object placement and capacity on the Flat node.]
   Compare all-HBM where
   feasible, all-DDR, weights-first, KV-first and mixed-KV policies as
   context and concurrency grow.  Evaluate the existing vLLM branch
@@ -162,11 +180,10 @@ stable, in the dependency order drawn in
   residency and output checks.  Keep any \lcpp{} result as a separately
   named runtime baseline.
 
-  \item[Cache-mode branch.] Measure the Cache-mode
-  working-set transition on the observed nodes.  If Flat is also
-  available under comparable conditions, compare modes explicitly.
-  Without Flat, report Cache-mode results and leave RQ2--RQ3
-  unanswered for CRESCO8 rather than implying tier control.
+  \item[Cache-mode branch.] Measure the Cache-mode working-set
+  transition on the regular partitions and compare it with the Flat-mode
+  policies on the same workloads (RQ4), stating that the two runs use
+  different nodes.
 \end{description}
 
 \subsection{Selecting factors without a Cartesian explosion}
@@ -243,6 +260,18 @@ Pilot runs determine the final numeric levels.  A sparse matrix of
 representative points followed by focused sweeps around observed knees
 is more informative than a large under-replicated grid.
 
+The allocation budget enforces the same discipline.  The regular HBM
+partition limits a job to 24 hours and a user to five nodes, the debug
+partition offers two nodes for one hour, and Flat-mode experiments share
+a single node.  A full Cartesian sweep over model, precision, prompt and
+generation length, batch, cores, placement and clustering would not fit,
+and would not be worth running if it did.  Salaria et al.\ give the
+principled response: measure the cost of a benchmark alongside its
+result and choose the subset of the space that preserves most of its
+information.  Their example shortens generation from 1{,}024 to 128
+tokens and keeps 96.6\% of the accuracy at 2.7 times lower
+cost~\cite{salaria2025metametrics}.
+
 \subsection{Runtime and correctness controls}
 
 Use named, frozen commits of the experimental vLLM CPU branch for mixed
@@ -263,8 +292,9 @@ treating them as interchangeable.
 
 \subsection{Metrics and explanatory measurements}
 
-The metric definitions, equations and validity criteria are consolidated
-in \secref{sec:metrics}; they are not repeated here.  The primary report
+The common latency and throughput metrics are introduced in
+\secref{sec:metrics}.  This chapter specifies their measurement
+boundaries and the controls needed for the experiments.  The primary report
 contains direct prompt-evaluation time, TTFT, the inter-token-latency
 distribution, TPOT and output throughput at the declared concurrency.
 Peak and steady resident memory are decomposed by object and tier where
@@ -320,15 +350,17 @@ artificially large sample.
 
 \subsection{Energy, if the boundary can be defended}
 
-RAPL estimates processor-domain energy; XClarity/INA226 and a rack or
-node power meter may cover different hardware.  Before reporting
-joules/token, validate access, units, update rate, counter wraparound and
-the components included in each source.  Integrate energy over the same
-timed region as performance.  Gross joules/request and
-joules/output-token should be reported; if idle energy is subtracted,
-also report the gross value and the subtraction procedure.  Facility
-cooling claims require a measured facility boundary and are outside a
-node-level study.
+On CRESCO8 the only energy source readable by a user is Slurm's IPMI
+accounting: whole-node energy sampled every 60 seconds.  RAPL and the
+model-specific registers are readable by root only, and the SD650~V3's
+100\,Hz meter is an administrative interface (\secref{sec:sd650-node}).
+Whole-node energy at one-minute granularity cannot separate processor
+from memory power or attribute energy to a phase shorter than a minute,
+so energy per token is outside the scope of the study.  If RAPL access
+is granted later, validate its units, update rate, counter wraparound and
+domain before reporting joules per token, integrate it over the same
+timed region as performance, and report gross values alongside any
+idle-subtracted ones.
 
 \subsection{Threats to validity}
 
