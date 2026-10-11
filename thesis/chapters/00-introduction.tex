@@ -1,0 +1,69 @@
+\chapter{Introduction}
+\label{chap:introduction}
+
+\section{Motivation}
+
+Large language models generate text by repeatedly evaluating a trained
+model on a growing sequence of tokens.  Providing useful inference
+performance therefore requires both numerical computation and timely
+access to substantial amounts of data.  The model's learned parameters
+remain available across requests, while attention state grows with the
+histories of the sequences being processed.  Temporary results and
+runtime workspaces add further demands.  Model size alone consequently
+does not describe the memory required to serve a workload.
+
+CPUs provide a relevant setting for studying these demands.  Their
+inference performance depends on the numerical representation of the
+model, the kernels that execute it, the available parallelism, and the
+memory system supplying their operands~\cite{na2024llmcpu}.  A processor
+can have considerable arithmetic capability while an application spends
+much of its time waiting for data.  Conversely, increasing memory
+bandwidth is useful only when the computation can exploit it.
+
+Systems combining high-bandwidth memory (HBM) and conventional DDR
+memory make this relationship particularly important.  They provide
+memory resources with different bandwidth, capacity and locality
+characteristics.  Depending on the hardware configuration, HBM may be
+exposed as separately addressable memory or used as a hardware-managed
+cache for DDR~\cite{intelmaxoverview}.  Understanding the benefit of such
+systems requires considering both the data retained by inference and
+the traffic generated while using it.
+
+\section{Objective and scope}
+
+This thesis investigates the memory requirements and performance of
+CPU-based LLM inference on systems combining HBM and DDR, considering
+the storage and access behavior of model weights and KV state.
+
+The central problem is the relationship between inference execution and
+the memory resources available within a compute node.  Weights and
+cached keys and values have different origins, lifetimes and access
+patterns.  The former encode the trained model; the latter retain
+information computed for a sequence's attention history.  Both must be
+considered alongside runtime buffers when reasoning about capacity,
+data movement and performance.  Prompt length, generation length,
+concurrency and execution batching can change this balance even when
+the model remains fixed.
+
+The scope is inference with trained transformer language models, with
+particular attention to autoregressive generation on CPUs.  Training
+and distributed inference across compute nodes are outside the scope
+of the memory-system analysis developed here.  The experimental setting
+is the CRESCO8 CPU platform described in
+\chapref{chap:experimental-platform}.  Architecture and runtime
+configuration are relevant because they determine which storage and
+execution mechanisms an experiment can actually exercise.
+
+The investigation considers weight storage, KV storage and their
+interaction under declared workloads.  Allocation, placement and
+scheduling affect the resources available to computation; their effects
+must be assessed together with any preparation or data-movement costs.
+Comparisons require explicit memory configurations, workload definitions
+and timing boundaries, so that observed performance can be related to
+the data being stored and accessed.
+
+\section{Thesis organization}
+
+\todo[inline,size=\normalsize]{\textbf{TODO:} Write the thesis organization
+once the thesis is complete, describing the final chapters and appendices
+in their actual order.}

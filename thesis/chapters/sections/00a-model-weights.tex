@@ -1,0 +1,126 @@
+\section{Model weights: representation, loading and use}
+\label{sec:model-weights}
+
+\subsection{Parameters and activations}
+
+\textbf{Model weights} are learned numerical tensors: arrays with shapes
+and element types that specify the model's transformations.  They
+include embedding tables, attention projection matrices, feed-forward
+matrices, learned normalization coefficients, and the output projection.
+Some architectures tie the embedding and output tensors, so two uses need
+not imply two independent allocations.  Ordinary inference uses the
+trained parameters without updating them; no training gradients or
+optimizer state are required for that computation.
+
+A linear operation makes the distinction precise:
+\begin{equation}
+\label{eq:weights-activations}
+ Y=XW,\qquad
+ X\in\mathbb{R}^{m\times d_{\mathrm{in}}},\quad
+ W\in\mathbb{R}^{d_{\mathrm{in}}\times d_{\mathrm{out}}},\quad
+ Y\in\mathbb{R}^{m\times d_{\mathrm{out}}}.
+\end{equation}
+\eqcaption{A learned matrix \(W\) transforms \(m\) input activation
+vectors into \(m\) new activation vectors.  Biases are omitted.}
+
+Here \(W\) is persistent model data, whereas \(X\) and \(Y\) depend on
+the positions being evaluated.  The same \(W\) can serve many positions
+and many requests.  In attention, \(W_K\) and \(W_V\) are weights;
+\(K=XW_K\) and \(V=XW_V\) are computed values.  Retaining these values
+as KV state does not create additional trained parameters.  This
+separation explains why the weight payload is principally a property of
+the model and its representation, while KV payload also depends on the
+workload's histories.
+
+\subsection{From model files to runtime tensors}
+
+A checkpoint or inference model file stores serialized tensors and
+metadata describing such properties as names, shapes and numerical
+representations.  Architecture configuration and tokenizer information
+may be provided alongside it.  Large models can be split across several
+files.  Files are persistent storage artifacts; kernels ultimately need
+addressable tensor representations in the process's memory space.
+\figref{fig:weight-loading} separates this preparation from repeated
+execution.
+
+One loading path reads tensor data and copies it into allocated buffers.
+Another maps file-backed storage into the virtual address space.
+\textbf{Memory mapping} establishes an addressable range without
+necessarily populating all its physical pages immediately.  Accesses
+can fault pages in on demand; prefetching and explicit population can
+change when that cost occurs.  The runtime may use the mapped
+representation directly or create additional tensors.  PyTorch's
+checkpoint-loading documentation illustrates both mapped loading and
+copying checkpoint tensors into a model's parameter allocations; these
+are alternatives, not a universal loading sequence~\cite{pytorchloading2026}.
+
+\begin{figure}[htbp]
+\centering
+\input{figures/weight-loading}
+\caption{From model files to weight operands.  The upper path shows
+preparation of addressable tensors: reading and mapping are alternatives,
+and conversion or packing is optional.  Mapping does not imply immediate
+physical residency.  Below, a highlighted row illustrates weight data
+fetched from backing memory into CPU caches as a cache-line fill; a
+kernel then uses its operands.  Cache hits reuse retained data without
+another main-memory transfer.  Pages can become resident during startup
+or on demand.  Array cells and hardware drawings are schematic; the cache
+hierarchy and transfers within it are collapsed.}
+\label{fig:weight-loading}
+\end{figure}
+\FloatBarrier
+
+Representation preparation can convert element types, unpack or pack
+quantized blocks, or arrange matrices in a layout suited to a kernel.
+\textbf{Packing} changes the storage order or layout to make accesses
+and arithmetic more efficient; it need not change the represented
+values or their precision.  Such preparation can use temporary buffers
+or retain an additional representation.  A loader's peak memory use can
+therefore exceed the final tensor payload.  A short loading timer also
+does not prove that every mapped page has already been read from storage.
+
+The operating system backs virtual addresses with physical pages.
+Where these pages reside depends on the allocation type, page-fault
+behavior and applicable memory policy, as well as on the loading path.
+File-backed mappings and anonymous tensor allocations need not obey the
+same locality assumptions.  In particular, the thread that prepares a
+representation and the threads that later read it may run on different
+CPU locality domains.  Allocation locality is developed in
+\secref{sec:cpu-memory-systems}.
+
+\subsection{Repeated use and numerical representation}
+
+Once prepared, weights can remain available across requests.  This
+avoids repeating file loading, but it does not keep all weights
+permanently in CPU caches.  Each kernel requests its operands through
+the cache hierarchy; cache misses fetch data from the backing memory.
+A large weight working set can require repeated main-memory traffic
+across layer evaluations and generation steps.  Model loading is thus
+a storage-to-memory preparation activity, whereas operand fetching is
+part of ongoing computation.
+
+Access behavior also depends on the operation.  A dense matrix product
+uses its matrix entries across the evaluated activation rows.  An
+embedding lookup selects rows for particular token IDs and does not
+necessarily read the whole embedding table.  Sparse or conditionally
+activated architectures can use subsets of their parameters.  It is
+therefore unsafe to equate the full model size with the exact bytes read
+on every generation step.
+
+FP32 stores four bytes per scalar; FP16 and BF16 store two, with
+different distributions of exponent and significand bits.  Quantization
+represents values with fewer bits and uses associated information, such
+as scale factors and sometimes zero points, to interpret groups of
+values.  A nominal four-bit weight payload is half a byte per parameter,
+but its format also stores metadata and may add padding.  Not all
+tensors must use the same type.  Kernels may compute directly on a
+compressed representation or reconstruct values as part of execution;
+the accumulation type can differ from the stored type.  Storage savings
+therefore do not by themselves establish either arithmetic speed or
+numerical quality~\cite{llamacppproject2026}.
+
+A parameter count describes how many learned scalar values a model has,
+not its file size, process memory footprint, or inference traffic.  The
+next sections identify the other data retained by inference, before
+\secref{sec:memory-requirements} combines their capacity estimates.
+\FloatBarrier

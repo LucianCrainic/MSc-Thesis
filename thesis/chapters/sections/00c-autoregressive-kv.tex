@@ -1,0 +1,126 @@
+\section{Autoregressive inference and KV state}
+\label{sec:autoregressive-kv}
+
+\subsection{Prefill and decode}
+
+Autoregressive generation selects a new token from the model's
+next-token distribution and extends the prefix before producing another:
+\begin{equation}
+\label{eq:autoregressive-factorization}
+ p(x_1,\ldots,x_T)=\prod_{t=1}^{T}p(x_t\mid x_{<t}).
+\end{equation}
+\eqcaption{Autoregressive factorization: each token is conditioned on
+the preceding tokens.}
+
+The model's logits can be turned into probabilities and a token can be
+selected deterministically or by sampling.  Generation stops at a
+termination token or another declared limit.  These choices affect the
+output, but the important execution dependency is that a sequence's
+next token must be known before its following evaluation can proceed.
+Different sequences can nevertheless advance together.
+
+\textbf{Prefill} evaluates the prompt.  Its positions can be processed
+in parallel within matrix operations because the token IDs are already
+known, while the causal mask prevents attention to future positions.
+For ordinary generation, the logits at the last prompt position produce
+the first output token.  \textbf{Decode} then evaluates newly generated
+tokens, conventionally one new position per active sequence per step.
+Evaluating that first output token produces the distribution for the
+second output token.  Thus producing \(O\) output tokens normally needs
+prefill and \(O-1\) subsequent decode evaluations; the final emitted
+token need not itself be evaluated unless further generation is needed.
+Chunked prompt processing and other execution strategies can change how
+these logical phases are scheduled, without changing this dependency.
+
+\subsection{What the cache retains}
+
+At each layer, the input activations generate keys and values using the
+layer's trained projections.  A later position's query compares against
+the available keys, and the resulting attention coefficients combine
+the associated values.  Since earlier positions cannot attend to later
+ones under causal attention, their keys and values need not be recomputed
+when the sequence is extended.  The \textbf{KV cache} retains these
+per-layer values for reuse~\cite{pope2023efficient}.
+
+Prefill establishes entries for the evaluated prompt positions.  Decode
+reads the retained history and adds entries for the position being
+processed.  Queries and most intermediate activations are temporary;
+keys and values persist for as long as the corresponding history is
+needed.  The cache avoids repeating computation of the previous
+positions' KV state; it does not eliminate reading that state or
+computing attention for a new query.  With full-history attention, longer
+histories increase both retained payload and the state a query can access.
+The logical attention expression need not be implemented by materializing
+its whole score matrix; kernels can operate on tiles.
+
+The number of \textbf{KV heads} controls how many distinct key/value
+vectors are retained per position.  In multi-head attention (MHA), each
+query head has its own KV head.  Multi-query attention (MQA) shares one
+KV head across all query heads.  Grouped-query attention (GQA) shares a
+KV head within each group of query heads, giving an intermediate KV
+count~\cite{ainslie2023gqa}.  For fixed layer count, head dimension,
+precision and retained length, fewer KV heads reduce the KV payload
+proportionally.  The query-head count can remain larger, so a small KV
+payload does not mean that all attention computation shrinks by the same
+factor.  The attention arrangement is a property of the model architecture,
+not a storage policy chosen freely by an allocator.
+
+\subsection{Logical history and physical storage}
+
+A sequence has a logical set of valid KV entries.  A runtime may store
+these in a contiguous buffer or map them to fixed-size physical blocks.
+Block allocation accommodates sequences of different lengths without
+requiring one contiguous maximum-length buffer for each
+sequence~\cite{kwon2023pagedattention}.  The PagedAttention work develops
+this mechanism for GPU serving; its distinction between logical tokens
+and physical blocks is also useful when describing CPU runtime storage,
+without assuming identical implementation or performance.
+
+Four quantities must remain distinct.  \textbf{Populated entries} hold
+valid state for evaluated positions.  \textbf{Occupied blocks} include
+storage assigned to these entries and any unused space within their
+blocks.  \textbf{Reserved pool capacity} is the storage set aside for
+KV management, including blocks not currently assigned to requests.
+\textbf{Resident memory} is the portion currently backed by physical
+pages in RAM.  A reserved virtual allocation, a committed pool and its
+resident pages can have different sizes.  Lazy page population, eager
+initialization and operating-system behavior affect their relationship.
+
+For example, with 16 positions per block, a 17-position sequence occupies
+two blocks: 32 positions of block capacity but only 17 populated entries.
+A pool of 100 such blocks reserves 1{,}600 positions of capacity even if
+only those two blocks are occupied.  Completing the request releases its
+logical ownership, but a runtime can keep the pool allocated for later
+requests.  Process memory need not drop when the request finishes.
+\figref{fig:inference-memory-lifetimes} shows these distinct lifetimes.
+
+\begin{figure}[htbp]
+\centering
+\input{figures/inference-memory-lifetimes}
+\caption{Request stages and reusable storage in a persistent engine.
+Prefill evaluates prompt tokens \(p_i\) and emits \(g_1\); decode
+evaluates generated tokens sequentially.  KV state grows from three to
+five evaluated positions within a six-position pool.  Paired K/V cells
+hold valid entries; solid block outlines mark assigned blocks.
+Completing this unshared request releases its slots while the pool can
+remain allocated.  Empty cells indicate unused capacity, not erased
+bytes.  Weights persist; temporary buffers may be reused.  Token examples
+and dimensions are schematic, and pool allocation time and physical
+residency depend on the runtime and memory policy.  The final emitted
+token need not have a KV entry.}
+\label{fig:inference-memory-lifetimes}
+\end{figure}
+\FloatBarrier
+
+Sequences are not always physically independent.  \textbf{Prefix caching}
+can reuse compatible KV blocks for a common prefix; reference counting
+allows several requests to share these blocks.  Compatibility depends
+on the model and the context that produced the state, not merely on
+matching a suffix of text.  Shared blocks must remain valid while in
+use, and an engine may keep reusable prefix blocks after individual
+requests complete~\cite{vllmprefix2026}.  Summing every sequence's logical
+length therefore gives an unshared payload estimate, not necessarily
+the number of physical bytes occupied.  Sliding-window or other bounded
+attention arrangements can also limit retained history.  Capacity models
+must state which attention and sharing assumptions they use.
+\FloatBarrier

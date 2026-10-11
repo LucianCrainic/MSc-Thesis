@@ -1,0 +1,157 @@
+% Storyboard: one request, shared weights, KV slots inside a reusable pool.
+% Filled cells represent valid state; clearing ownership need not erase bytes.
+\begingroup
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+ font=\small\sffamily,text=black!80,
+ weight/.style={draw=figcol,fill=figcol!8,line width=0.65pt},
+ temp/.style={draw=tabline,fill=neutralcol,line width=0.65pt},
+ kv/.style={draw=ddrcol,fill=ddrcol!25,line width=0.65pt},
+ free/.style={draw=ddrcol!45,fill=white,line width=0.5pt},
+ flow/.style={-{Stealth[length=4pt,width=3pt]},draw=black!65,line width=0.8pt},
+ note/.style={font=\footnotesize\sffamily,align=center},
+ stage/.style={font=\small\sffamily\bfseries,align=center},
+ rowlabel/.style={anchor=east,align=right,text width=2.0cm},
+ token/.style={temp,rounded corners=1pt,minimum width=0.42cm,
+   minimum height=0.38cm,inner sep=1pt,font=\footnotesize\sffamily},
+ pool/.style={draw=ddrcol,dashed,rounded corners=3pt,line width=0.7pt}
+]
+
+% The request path: files, prompt, parallel prompt work, serial steps, text.
+\node[stage] at (0,1.7) {Load};
+\node[stage] at (3,1.7) {Prompt};
+\node[stage] at (6,1.7) {Prefill};
+\node[stage] at (9,1.7) {Decode};
+\node[stage] at (12,1.7) {Complete};
+
+% Document icon used for model loading.
+\draw[weight] (-0.48,-0.25)--(0.48,-0.25)--(0.48,0.57)
+ --(0.23,0.82)--(-0.48,0.82)--cycle;
+\draw[draw=figcol] (0.23,0.82)--(0.23,0.57)--(0.48,0.57);
+\foreach \x in {0,1,2} \foreach \y in {0,1}
+ \draw[draw=figcol!65,fill=white]
+  (-0.31+\x*0.21,0.05+\y*0.21) rectangle ++(0.16,0.16);
+\node[note] at (0,-0.65) {Model files};
+
+% Text enters as a prompt; token identifiers are shown below it.
+\draw[temp,rounded corners=3pt] (2.12,-0.12) rectangle (3.88,0.85);
+\draw[temp] (2.38,-0.12)--(2.38,-0.3)--(2.64,-0.12);
+\node[note] at (3,0.4) {Explain\\caches};
+\foreach \j/\dx in {1/-0.55,2/0,3/0.55}
+ \node[token] at (3+\dx,-0.65) {$p_{\j}$};
+\draw[flow] (3,-0.13)--(3,-0.43);
+\node[note,text=black!60] at (3,-1.13) {Token IDs};
+
+% Small processor icons: several known prompt positions, then one new position.
+\foreach \cx in {6,9} {
+ \foreach \dy in {-0.15,0.15,0.45,0.75} {
+  \draw[draw=black!45] (\cx-0.6,\dy)--(\cx-0.77,\dy);
+  \draw[draw=black!45] (\cx+0.6,\dy)--(\cx+0.77,\dy);
+ }
+ \draw[temp,rounded corners=2pt] (\cx-0.6,-0.32) rectangle (\cx+0.6,0.93);
+}
+\foreach \dx in {-0.35,0,0.35}
+ \draw[temp,fill=white] (6+\dx-0.13,0.15) rectangle ++(0.26,0.4);
+\node[token] at (9,0.35) {$g_t$};
+\node[note] at (6,-0.75) {Prompt positions};
+\node[note] at (9,-0.75) {One new position};
+\draw[flow] (9.6,0.95)--(9.6,1.25)--(8.4,1.25)--(8.4,0.95);
+
+% Emission follows prefill as well as decode; the loop evaluates emitted tokens.
+\draw[flow] (0.7,0.35)--(1.93,0.35);
+\draw[flow] (4.03,0.35)--(5.2,0.35);
+\draw[flow] (6.8,0.35)--(8.2,0.35);
+\node[token] at (7.5,0.35) {$g_1$};
+\node[note,text=black!60] at (7.5,-0.3) {First token};
+\draw[flow] (9.8,0.35)--(10.92,0.35);
+\draw[temp,rounded corners=3pt] (11.1,-0.12) rectangle (12.9,0.85);
+\draw[temp] (12.45,-0.12)--(12.45,-0.3)--(12.19,-0.12);
+\node[note] at (12,0.4) {Caches\\reuse data.};
+\foreach \j/\dx in {1/-0.55,2/0,3/0.55}
+ \node[token] at (12+\dx,-0.65) {$g_{\j}$};
+\draw[flow] (12,-0.43)--(12,-0.13);
+\node[note,text=black!60] at (12,-1.13) {Tokens to text};
+
+\draw[draw=tabline,dashed] (-2.55,-1.55)--(13.35,-1.55);
+
+% The same trained matrices remain available for the engine's lifetime.
+\node[rowlabel] at (-1.45,-2.55) {Model\\weights};
+\draw[draw=figcol!40,line width=0.7pt] (-0.8,-2.4)--(12.8,-2.4);
+\foreach \cx in {0,6,9,12} {
+ \draw[weight] (\cx-0.43,-2.75) rectangle (\cx+0.43,-2.05);
+ \foreach \dx in {-0.14,0.14}
+  \draw[draw=figcol!50] (\cx+\dx,-2.75)--(\cx+\dx,-2.05);
+ \draw[draw=figcol!50] (\cx-0.43,-2.4)--(\cx+0.43,-2.4);
+}
+\node[note,fill=white,inner sep=3pt] at (3,-2.4) {Same weights};
+\node[note,text=black!60] at (9,-3.2) {Available across requests};
+
+% Three snapshots of one fixed-capacity pool, each with three two-position blocks.
+% A slot comprises the K and V cells in one column; widths are illustrative.
+\node[rowlabel] at (-1.45,-4.7) {KV cache\\and pool};
+\node[note,text width=2.1cm,text=black!60] at (1.45,-4.7)
+ {Allocation time\\depends on engine};
+\foreach \cx/\used in {6/3,9/5,12/0} {
+ \draw[pool] (\cx-1.05,-5.28) rectangle (\cx+1.12,-4.07);
+ \node[note,anchor=east] at (\cx-1.2,-4.46) {$K$};
+ \node[note,anchor=east] at (\cx-1.2,-4.91) {$V$};
+ \foreach \block in {0,1,2} {
+  \pgfmathtruncatemacro{\blockstart}{2*\block}
+  \ifnum\blockstart<\used
+   \draw[draw=ddrcol,line width=0.75pt,rounded corners=1pt]
+    (\cx-0.91+\block*0.67,-5.12) rectangle ++(0.61,0.91);
+  \else
+   \draw[draw=ddrcol!45,dashed,line width=0.6pt,rounded corners=1pt]
+    (\cx-0.91+\block*0.67,-5.12) rectangle ++(0.61,0.91);
+  \fi
+  \foreach \slot in {0,1} {
+   \pgfmathtruncatemacro{\entry}{2*\block+\slot}
+   \foreach \dy in {-4.6,-5.03} {
+    \ifnum\entry<\used
+     \draw[kv] (\cx-0.85+\block*0.67+\slot*0.26,\dy)
+      rectangle ++(0.23,0.31);
+    \else
+     \draw[free] (\cx-0.85+\block*0.67+\slot*0.26,\dy)
+      rectangle ++(0.23,0.31);
+    \fi
+   }
+  }
+ }
+}
+\node[note] at (6,-5.75) {Prompt KV};
+\node[note] at (9,-5.75) {Growing history};
+\node[note] at (12,-5.75) {Slots reusable};
+\node[note,text=black!60] at (12,-6.18) {Ownership released};
+
+% Stage-local data: compact input buffers, activation arrays and reusable buffers.
+\node[rowlabel] at (-1.45,-7.12) {Temporary\\data};
+\foreach \cx in {0,3,6,9} {
+ \draw[temp,rounded corners=2pt] (\cx-0.65,-7.49) rectangle (\cx+0.65,-6.66);
+}
+\foreach \cx in {0,6} \foreach \dx in {-0.4,0,0.4} \foreach \dy in {-7.3,-6.98}
+ \draw[draw=tabline,fill=white] (\cx+\dx-0.13,\dy) rectangle ++(0.26,0.24);
+\foreach \dx in {-0.4,0,0.4} {
+ \draw[draw=tabline,fill=white] (3+\dx-0.13,-7.23) rectangle ++(0.26,0.32);
+ \draw[draw=tabline,fill=white] (9+\dx-0.13,-7.23) rectangle ++(0.26,0.32);
+}
+\draw[draw=tabline,dashed,rounded corners=2pt]
+ (11.35,-7.49) rectangle (12.65,-6.66);
+\draw[flow] (11.62,-7.05) arc[start angle=180,end angle=-120,radius=0.3cm];
+\node[note] at (0,-7.96) {Load buffers};
+\node[note] at (3,-7.96) {Input IDs};
+\node[note] at (6,-7.96) {Prompt activations};
+\node[note] at (9,-7.96) {Step activations};
+\node[note] at (12,-7.96) {Buffers reusable};
+
+% Keys distinguish populated KV data from capacity without colour-name labels.
+\node[kv,minimum width=0.25cm,minimum height=0.22cm,inner sep=0pt]
+ at (0,-8.9) {};
+\node[note,anchor=west] at (0.27,-8.9) {Valid K/V};
+\node[free,minimum width=0.25cm,minimum height=0.22cm,inner sep=0pt]
+ at (4.2,-8.9) {};
+\node[note,anchor=west] at (4.47,-8.9) {Unused capacity};
+\draw[pool] (8.48,-9.05) rectangle (8.78,-8.75);
+\node[note,anchor=west] at (9.02,-8.9) {Retained pool};
+\end{tikzpicture}%
+}
+\endgroup

@@ -1,17 +1,19 @@
-\chapter{Theoretical and Technical Background}
+\chapter{Background}
 \label{chap:theoretical-background}
 
-This chapter introduces the concepts needed to follow the thesis.  It
-begins with large language models, tokens and autoregressive inference,
-then describes the inference pipeline and the engines that execute it.
-The cluster overview provides the computing context.  The final
-sections explain hardware performance limits through the Roofline
-model and define the latency and throughput metrics used to evaluate
-inference.
+This chapter connects transformer computation to the data that a CPU
+inference engine stores and accesses.  It distinguishes learned model
+weights from input-dependent activations and retained attention state,
+then explains how execution and the memory hierarchy determine capacity
+requirements and performance.  Linear algebra and basic computer
+architecture are assumed; specialist knowledge of machine learning or
+high-performance computing is not required.
 
 \input{chapters/sections/00-llm-inference-foundations}
+\input{chapters/sections/00a-model-weights}
+\input{chapters/sections/00c-autoregressive-kv}
 \input{chapters/sections/00b-inference-engines}
-\input{chapters/sections/01-hpc-and-clusters}
+\input{chapters/sections/01-cpu-memory-systems}
 \input{chapters/sections/04-performance-background}
 \input{chapters/sections/05-inference-metrics}
 

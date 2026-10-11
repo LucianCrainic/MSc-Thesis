@@ -88,6 +88,16 @@
   note         = {Accessed 10 October 2026}
 }
 
+@manual{nerscroofline2026,
+  author       = {{NERSC}},
+  title        = {Roofline Performance Model},
+  organization = {National Energy Research Scientific Computing Center},
+  year         = {2026},
+  url          = {https://docs.nersc.gov/tools/performance/roofline/},
+  urldate      = {2026-10-11},
+  note         = {Accessed 11 October 2026}
+}
+
 @article{williams2009roofline,
   author  = {Williams, Samuel and Waterman, Andrew and Patterson, David},
   title   = {Roofline: An Insightful Visual Performance Model for
@@ -602,4 +612,125 @@
   primaryClass  = {cs.AR},
   url           = {https://arxiv.org/abs/2607.18141},
   urldate       = {2026-08-28}
+}
+
+@manual{intelmaxoverview,
+  author       = {{Intel Corporation}},
+  title        = {Technical Overview of the Intel Xeon Scalable Processor Max Series},
+  organization = {Intel Corporation},
+  year         = {2023},
+  url          = {https://www.intel.com/content/www/us/en/developer/articles/technical/xeon-scalable-processor-max-series.html},
+  urldate      = {2026-10-11}
+}
+
+@inproceedings{nassif2022sapphire,
+  author    = {Nassif, Nevine and Munch, Ashley O. and Molnar, Carleton L. and others},
+  title     = {Sapphire Rapids: The Next-Generation {Intel} {Xeon} Scalable Processor},
+  booktitle = {2022 IEEE International Solid-State Circuits Conference (ISSCC)},
+  year      = {2022},
+  pages     = {44--46},
+  publisher = {IEEE}
+}
+
+@misc{anandtech2021goldencove,
+  author  = {Frumusanu, Andrei and Cutress, Ian},
+  title   = {Golden Cove Microarchitecture (P-Core) Examined},
+  howpublished = {AnandTech, in ``A Deep Dive into Intel's Alder Lake Microarchitectures''},
+  year    = {2021},
+  month   = aug,
+  url     = {https://www.anandtech.com/show/16881/a-deep-dive-into-intels-alder-lake-microarchitectures/3},
+  urldate = {2026-10-11}
+}
+
+@misc{intelarchday2021,
+  author  = {{Intel Corporation}},
+  title   = {Architecture Day 2021: Performance Index},
+  year    = {2021},
+  note    = {Peak AMX operations per cycle per core},
+  url     = {https://edc.intel.com/content/www/us/en/products/performance/benchmarks/architecture-day-2021/},
+  urldate = {2026-10-11}
+}
+
+@manual{linuxxstate,
+  author       = {{The Linux Kernel Documentation}},
+  title        = {Using {XSTATE} Features in User Space Applications},
+  url          = {https://docs.kernel.org/arch/x86/xstate.html},
+  urldate      = {2026-10-11}
+}
+
+@manual{linuxnumaperf,
+  author       = {{The Linux Kernel Documentation}},
+  title        = {{NUMA} Memory Performance},
+  url          = {https://docs.kernel.org/admin-guide/mm/numaperf.html},
+  urldate      = {2026-10-11}
+}
+
+@manual{intel8592,
+  author       = {{Intel Corporation}},
+  title        = {Intel Xeon Platinum 8592+ Processor Specifications},
+  organization = {Intel Corporation},
+  year         = {2023},
+  url          = {https://www.intel.com/content/www/us/en/products/sku/237261/intel-xeon-platinum-8592-processor-320m-cache-1-9-ghz/specifications.html},
+  urldate      = {2026-10-11}
+}
+
+@misc{hwbench2026,
+  author       = {Crainic, Lucian Dorin},
+  title        = {{HW Bench}: Measured {CPU}, {DDR} and {HBM} Rooflines of the {CRESCO8} {Xeon} {Max} Nodes},
+  year         = {2026},
+  howpublished = {Software repository},
+  url          = {https://github.com/struggling-student/hw-bench},
+  urldate      = {2026-10-11}
+}
+
+@misc{grattafiori2024llama3,
+  author        = {Grattafiori, Aaron and others},
+  title         = {The {Llama} 3 Herd of Models},
+  year          = {2024},
+  eprint        = {2407.21783},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI},
+  url           = {https://arxiv.org/abs/2407.21783}
+}
+
+% Opening background: loading mechanisms, KV sharing and allocation locality.
+@manual{pytorchloading2026,
+  author  = {{PyTorch Contributors}},
+  title   = {Tips for Loading an nn.Module from a Checkpoint},
+  url     = {https://docs.pytorch.org/tutorials/recipes/recipes/module_load_state_dict_tips.html},
+  urldate = {2026-10-11}
+}
+
+@inproceedings{ainslie2023gqa,
+  author    = {Ainslie, Joshua and Lee-Thorp, James and de Jong, Michiel and
+               Zemlyanskiy, Yury and Lebron, Federico and Sanghai, Sumit},
+  title     = {{GQA}: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints},
+  booktitle = {Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing},
+  year      = {2023},
+  pages     = {4895--4901},
+  publisher = {Association for Computational Linguistics},
+  doi       = {10.18653/v1/2023.emnlp-main.298},
+  url       = {https://aclanthology.org/2023.emnlp-main.298/}
+}
+
+@manual{vllmprefix2026,
+  author  = {{vLLM Contributors}},
+  title   = {Automatic Prefix Caching},
+  url     = {https://docs.vllm.ai/en/latest/design/prefix_caching/},
+  urldate = {2026-10-11}
+}
+
+@manual{linuxnumapolicy2026,
+  author  = {{The Linux Kernel Documentation}},
+  title   = {{NUMA} Memory Policy},
+  url     = {https://docs.kernel.org/admin-guide/mm/numa_memory_policy.html},
+  urldate = {2026-10-11}
+}
+
+
+@manual{metallamamodel2026,
+  author  = {{Meta Llama Contributors}},
+  title   = {Llama Reference Implementation: Transformer and Attention Modules},
+  url     = {https://github.com/meta-llama/llama/blob/main/llama/model.py},
+  urldate = {2026-10-11}
 }

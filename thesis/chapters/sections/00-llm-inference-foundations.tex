@@ -1,314 +1,67 @@
-%======================================================================
-%  LLM inference foundations
-%======================================================================
-
-\section{From text to autoregressive inference}
+% A compact computational overview; storage details follow separately.
+\section{Transformer computation}
 \label{sec:llm-inference-foundations}
 
-A large language model is a neural sequence model with many learned numerical
-parameters that assigns probabilities to token sequences.  ``Large'' has no
-fixed parameter threshold; it indicates that model capacity and its associated
-compute and memory demands have been scaled substantially.  This thesis treats
-those already learned parameters as fixed inputs to the inference runtime;
-how they were estimated is outside the scope of the work.  The question here
-is what happens after a user supplies a prompt, which objects must be held in
-memory, and which bytes the processor must move to produce each output token.
+A language model takes a sequence of \textbf{tokens}, integer identifiers
+from a vocabulary, and produces scores for possible next tokens.  A
+tokenizer converts text into these identifiers; a token can represent a
+word, part of a word, or another text fragment.  Token counts and text
+lengths are therefore different quantities.  The decoder-only
+transformer is the computational architecture considered here, derived
+from the transformer introduced by Vaswani et al.~\cite{vaswani2017attention}.
 
-\subsection{Tokens, probabilities and generation}
-
-A language model does not consume words directly.  A tokenizer maps text to
-a sequence of integer identifiers drawn from a finite vocabulary
-\(\mathcal{V}\).  A token can be a word, a word fragment, punctuation or even
-whitespace, depending on the tokenizer.  Consequently, token count rather
-than word count is the relevant unit for context capacity and inference
-work.  Given a prefix \(x_{<t}=(x_1,\ldots,x_{t-1})\), an autoregressive
-language model assigns a probability to every possible next token:
-
-\begin{equation}
-\label{eq:autoregressive-factorization}
-  p_\theta(x_{1:T})
-  = \prod_{t=1}^{T} p_\theta(x_t \mid x_{<t}),
-  \qquad x_t \in \mathcal{V}.
-\end{equation}
-\eqcaption{Autoregressive factorization.  Generation is a sequence of
-next-token decisions: every selected token becomes part of the prefix for the
-following decision.}
-
-The model computes one unnormalised score, or \emph{logit}, for every token in
-\(\mathcal{V}\).  A softmax converts the logits into a probability
-distribution, and a decoding policy selects a token.  Greedy decoding takes
-the most probable token; sampling policies may adjust the distribution with
-temperature, top-\(k\), or top-\(p\) filtering before drawing from it.  The
-selected token is appended to the context and the model is evaluated again.
-The loop ends at an end-of-sequence token, a requested length, or another
-stopping rule.  Detokenization finally maps the generated identifiers back to
-text.  \figref{fig:token-generation} shows this feedback loop.  The important
-systems fact is that a response is not produced in one pass: its tokens are
-serially dependent, even though the operations inside one pass are parallel.
+An embedding lookup selects a learned vector for each token.  Positional
+information allows the model to distinguish order.  A stack of layers
+then transforms these vectors, combining \textbf{causal self-attention},
+which mixes information from the available history, with feed-forward
+transformations applied to each position.  Normalization and residual
+connections control the transformations and preserve a path for the
+layer input.  Finally, an output projection produces \textbf{logits}, one
+score per vocabulary entry; these scores define a next-token distribution.
+\figref{fig:transformer-overview} identifies the main operations and
+where learned parameters participate.  Read each panel from bottom to
+top: the left panel shows the complete model, and the right panel shows
+one representative layer with normalization before each sublayer.
+The layer's two residual paths bypass normalization and computation and
+rejoin at the addition nodes.  The KV cache is stored state used by
+attention, rather than another stage in the activation path.
 
 \begin{figure}[htbp]
 \centering
-\begingroup
-\definecolor{generationink}{HTML}{263445}
-\definecolor{generationblue}{HTML}{365D85}
-\colorlet{generationaccent}{sapred}
-\definecolor{generationborder}{HTML}{CBD5DF}
-\resizebox{\textwidth}{!}{%
-\begin{tikzpicture}[
-  font=\small\sffamily, text=generationink,
-  card/.style={line width=0.65pt, rounded corners=4pt, align=center},
-  ticket/.style={card, draw=generationborder, fill=generationink!3,
-                 minimum height=0.72cm, inner xsep=8pt},
-  generated/.style={ticket, draw=generationaccent, fill=generationaccent!10,
-                    text=generationaccent!70!black},
-  model/.style={card, draw=generationblue, fill=generationblue!9,
-                minimum width=3.0cm, minimum height=1.0cm,
-                inner sep=8pt},
-  context/.style={draw=generationborder, line width=0.5pt,
-                  rounded corners=6pt, inner sep=5pt},
-  flow/.style={-{Stealth[length=5pt,width=4pt]}, line width=0.8pt,
-               draw=generationink!75},
-  loop/.style={flow, draw=generationaccent},
-  note/.style={font=\footnotesize\sffamily, text=generationink!80,
-               align=center}
-]
-  \node[ticket] (p1) at (-4.8,1.4) {High};
-  \node[ticket, right=0.12cm of p1] (p2) {bandwidth};
-  \node[ticket, right=0.12cm of p2] (p3) {memory};
-  \node[ticket, right=0.12cm of p3] (p4) {can};
-  \node[context, fit=(p1)(p2)(p3)(p4)] (prompt) {};
-  \node[note, left=0.3cm of prompt] {prompt tokens};
-
-  \node[model] (model) at (0.1,-0.35)
-    {decoder-only\\transformer};
-  \node[model, right=0.65cm of model] (logits)
-    {logits over\\the vocabulary};
-  \node[model, right=0.65cm of logits] (select)
-    {decoding policy\\select one token};
-  \node[generated, right=0.65cm of select] (new) {reduce};
-
-  % Feed the complete prompt into the top of the model card.  The final
-  % vertical segment keeps the arrowhead perpendicular to the card border.
-  \draw[flow] (prompt.south) -- ++(0,-0.28) -| (model.north);
-  \draw[flow] (model) -- (logits);
-  \draw[flow] (logits) -- (select);
-  \draw[flow] (select) -- (new);
-  \draw[loop] (new.south) -- ++(0,-0.85) -| (model.south)
-    node[pos=0.28, below, note, text=generationaccent]
-      {append to the context; repeat};
-
-  \node[ticket] (n1) at (-4.8,-2.6) {High};
-  \node[ticket, right=0.12cm of n1] (n2) {bandwidth};
-  \node[ticket, right=0.12cm of n2] (n3) {memory};
-  \node[ticket, right=0.12cm of n3] (n4) {can};
-  \node[generated, right=0.12cm of n4] (n5) {reduce};
-  \node[context, fit=(n1)(n2)(n3)(n4)(n5)] (next) {};
-  \node[note, left=0.3cm of next] {next context};
-  \node[note, right=0.55cm of next, text width=4.9cm]
-    {The new token is now an input to the next step.};
-\end{tikzpicture}%
-}
-\endgroup
-\caption{Autoregressive generation at token level.  Token boundaries are
-illustrative and depend on the tokenizer; the example is not intended to show
-the output of a particular model.}
-\label{fig:token-generation}
+\input{figures/transformer-overview}
+\caption{Decoder-only transformer computation, read bottom to top.
+Panel (a) shows the model path; panel (b) expands one layer in a common
+pre-normalized form~\cite{metallamamodel2026}.  The legend distinguishes
+operations using learned parameters, input/output activations and retained
+request state.  The
+$+$ nodes add each sublayer's result to its input through a residual
+path.  Attention writes new keys and
+values and reads the permitted history.  Positional operations and
+architecture-specific normalization and feed-forward details are omitted.}
+\label{fig:transformer-overview}
 \end{figure}
 
-The \emph{context} at a given step comprises the prompt tokens and all tokens
-generated so far.  Its maximum permitted length is the context window.  The
-prompt length and requested generation length are separate workload
-variables: the former controls how much history must initially be processed,
-whereas the latter controls how many serial decode iterations are executed.
-Batch size or concurrency determines how many sequences share an evaluation
-step.  These quantities must not be collapsed into a model name when reporting
-performance.
-
-\subsection{What one model evaluation computes}
-
-Most contemporary generative LLMs use a decoder-only transformer derived from
-the attention architecture of Vaswani et al.~\cite{vaswani2017attention}.
-Token identifiers are mapped to vectors, position information is incorporated,
-and the vectors pass through a stack of transformer layers.  Each layer
-contains causal self-attention, a feed-forward network and the associated
-normalisation and residual operations.  The causal constraint prevents a
-position from using later tokens.
-
-For one attention head, learned projections form queries, keys and values,
-\(Q=XW_Q\), \(K=XW_K\), and \(V=XW_V\).  A simplified attention operation is
-
+\begin{samepage}
+For one attention head, with input activation matrix \(X\), learned
+projection matrices produce queries, keys and values:
 \begin{equation}
 \label{eq:scaled-dot-product-attention}
-  \operatorname{Attention}(Q,K,V)
-  = \operatorname{softmax}\!\left(
-      \frac{QK^{\mathsf T}}{\sqrt{d_h}} + M_{\mathrm{causal}}
-    \right)V,
+ Q=XW_Q,\quad K=XW_K,\quad V=XW_V,\qquad
+ A=\operatorname{softmax}\!\left(\frac{QK^{\mathsf T}}{\sqrt{d_h}}+C\right)V.
 \end{equation}
-\eqcaption{Scaled dot-product causal attention.  The mask excludes future
-positions; during decode, the new query uses keys and values retained from the
-existing context.}
+\eqcaption{Scaled dot-product attention.  The head dimension is \(d_h\);
+\(C\) masks unavailable positions with negative infinity before the
+row-wise softmax.}
+\end{samepage}
 
-where \(d_h\) is the head dimension and \(M_{\mathrm{causal}}\) represents the
-causal mask.  Multi-head attention performs several such projections, and the
-feed-forward block applies large learned linear transformations independently
-at each token position.  After the final layer, an output projection produces
-the vocabulary logits used by the decoding policy.  Architectural variants
-change details such as positional encoding, activation function, normalisation
-and the number of key--value heads, but not the data-lifetime distinction used
-in this thesis.
-
-That distinction has three parts~\cite{pope2023efficient,sheng2023flexgen}:
-
-\begin{itemize}
-  \item \textbf{Weights} are the fixed learned parameters.  They persist for
-        the model's lifetime, are reused by all requests and usually dominate
-        its capacity footprint.
-  \item The \textbf{key--value (KV) cache} retains the key and value vectors
-        already computed in every layer.  It avoids recomputing the complete
-        prefix at each decode step, but is private to a sequence, grows with
-        context length and concurrency, and must be read when later tokens
-        attend to their history.
-  \item \textbf{Activations and workspaces} are temporary intermediates and
-        runtime buffers.  Their sizes depend on the phase, batch, kernels and
-        implementation; prepacked or duplicated weights may add another
-        runtime-managed allocation.
-\end{itemize}
-
-The KV cache is therefore not the model's memory.  It is request state beside
-the model, and the two objects have different lifetimes and access patterns.
-PagedAttention demonstrates how variable-size KV allocations and
-fragmentation can limit serving capacity even when the arithmetic is
-unchanged~\cite{kwon2023pagedattention}.  That study targets GPU serving, so it
-supports the memory-management mechanism rather than a quantitative claim
-about the CPU studied here.
-
-\subsection{The inference pipeline and its memory objects}
-
-\figref{fig:inference-memory-lifetimes} follows one request through the
-runtime.  Model loading and any weight repacking happen before steady-state
-generation.  Tokenization produces the prompt identifiers.  \emph{Prefill}
-processes those identifiers and creates the initial KV cache.  The
-\emph{decode} loop then evaluates one new position per sequence, selects a
-token and appends its key and value state.  Sampling and detokenization are
-usually small compared with the transformer layers, but they are inside the
-user-visible latency boundary unless the measurement deliberately excludes
-them.
-
-\begin{figure}[htbp]
-\centering
-\begingroup
-\definecolor{lifetimeink}{HTML}{263445}
-\definecolor{lifetimeblue}{HTML}{365D85}
-\colorlet{lifetimeaccent}{sapred}
-\definecolor{lifetimeborder}{HTML}{CBD5DF}
-\resizebox{\textwidth}{!}{%
-\begin{tikzpicture}[
-  font=\small\sffamily, text=lifetimeink,
-  card/.style={line width=0.65pt, rounded corners=4pt, align=center,
-               inner xsep=5pt, inner ysep=7pt},
-  stage/.style={card, draw=lifetimeborder, fill=lifetimeink!3,
-                text width=2.15cm, minimum width=2.5cm,
-                minimum height=1.6cm},
-  state/.style={card, font=\footnotesize\sffamily,
-                text width=2.15cm, minimum width=2.5cm,
-                minimum height=1.15cm},
-  cache/.style={state, draw=lifetimeaccent, fill=lifetimeaccent!9},
-  temporary/.style={state, draw=lifetimeborder, fill=lifetimeink!3},
-  flow/.style={-{Stealth[length=5pt,width=4pt]}, line width=0.8pt,
-               draw=lifetimeink!75},
-  label/.style={font=\footnotesize\sffamily, anchor=east,
-                text width=2.1cm, align=right},
-  note/.style={font=\footnotesize\sffamily, align=center,
-               text=lifetimeink!80}
-]
-  % Fixed columns connect each memory operation to its inference stage.
-  \foreach \x in {0,2.75,5.5,8.25,11} {
-    \draw[lifetimeborder, densely dashed, line width=0.4pt]
-      (\x,1.45) -- (\x,-3.0);
-  }
-  \node[note] at (0,4.15) {\textbf{Model startup}};
-  \node[note] at (6.875,4.15)
-    {\textbf{One request}\quad (stages from left to right)};
-  \draw[lifetimeborder, line width=0.65pt]
-    (-1.25,3.85) -- (1.25,3.85);
-  \draw[lifetimeborder, line width=0.65pt]
-    (1.5,3.85) -- (12.25,3.85);
-
-  \node[stage] (load) at (0,2.2)
-    {\textbf{Load model}\\{\footnotesize initialise weights}};
-  \node[stage] (tok) at (2.75,2.2)
-    {\textbf{Tokenize}\\{\footnotesize text to token IDs}};
-  \node[stage, draw=lifetimeblue, fill=lifetimeblue!9] (pre) at (5.5,2.2)
-    {\textbf{Prefill}\\{\footnotesize process the prompt}};
-  \node[stage, draw=lifetimeaccent, fill=lifetimeaccent!9] (dec) at (8.25,2.2)
-    {\textbf{Decode}\\{\footnotesize one position per step}};
-  \node[stage] (out) at (11,2.2)
-    {\textbf{Detokenize}\\{\footnotesize token IDs to text}};
-  \draw[flow] (load.east) -- (tok.west);
-  \draw[flow] (tok.east) -- (pre.west);
-  \draw[flow] (pre.east) -- (dec.west);
-  \draw[flow] (dec.east) -- (out.west);
-  % Distinct entry and exit points make this a visible feedback loop.
-  \draw[flow, draw=lifetimeaccent]
-    ($(dec.north)+(0.65,0)$) -- ++(0,0.3) -- ++(-1.3,0)
-    -- ($(dec.north)+(-0.65,0)$);
-  \node[note, text=lifetimeaccent] at (8.25,3.6) {repeat until stop};
-
-  \node[label, text=lifetimeblue] at (-1.6,0.35)
-    {\textbf{Model weights}\\persistent};
-  \node[state, draw=lifetimeblue, fill=lifetimeblue!9,
-        text width=12.9cm, minimum width=13.5cm] at (5.5,0.35)
-    {\textbf{Load once; keep resident across requests.}\\
-     Read during prefill and every decode step.};
-
-  \node[label, text=lifetimeaccent] at (-1.6,-1.1)
-    {\textbf{KV cache}\\per request};
-  \node[note, text width=4.8cm] at (1.375,-1.1) {No KV cache yet};
-  \node[cache] (kvpre) at (5.5,-1.1)
-    {\textbf{Create}\\from prompt};
-  \node[cache, fill=lifetimeaccent!16] (kvdec) at (8.25,-1.1)
-    {\textbf{Read + grow}\\each step};
-  \node[state, draw=lifetimeaccent!45, fill=lifetimeaccent!3] (kvend) at (11,-1.1)
-    {\textbf{Release}\\after request};
-  \draw[flow, draw=lifetimeaccent] (kvpre.east) -- (kvdec.west);
-  \draw[flow, draw=lifetimeaccent] (kvdec.east) -- (kvend.west);
-
-  \node[label] at (-1.6,-2.55)
-    {\textbf{Temporary buffers}\\examples by stage};
-  \node[temporary] at (0,-2.55) {Load / packing\\workspace};
-  \node[temporary] at (2.75,-2.55) {Token ID\\buffers};
-  \node[temporary] at (5.5,-2.55) {Prefill\\activations};
-  \node[temporary] at (8.25,-2.55) {Per-step\\activations};
-  \node[temporary] at (11,-2.55) {Text / output\\buffers};
-
-  \node[card, draw=lifetimeborder, fill=lifetimeink!3,
-        text width=6.1cm, minimum width=6.6cm, minimum height=1.6cm,
-        font=\footnotesize\sffamily] at (2.05,-4.25)
-    {\textbf{Capacity: how much memory is occupied?}\\
-     Sum of the bytes held at the same time.};
-  \node[card, draw=lifetimeborder, fill=lifetimeink!3,
-        text width=6.1cm, minimum width=6.6cm, minimum height=1.6cm,
-        font=\footnotesize\sffamily] at (8.95,-4.25)
-    {\textbf{Traffic: how much data is moved?}\\
-     Bytes moved by reads and writes,\\including repeated accesses.};
-\end{tikzpicture}%
-}
-\endgroup
-\caption{Inference stages and memory lifetimes for one autoregressive request.
-Weights persist across requests; the KV cache is created in prefill and grows
-during decode; temporary buffers are shown by stage.  Columns indicate stages,
-not durations or memory sizes.  Allocations and cache release depend on the
-runtime; detokenization can overlap decode~\cite{pope2023efficient,sheng2023flexgen,kwon2023pagedattention}.}
-\label{fig:inference-memory-lifetimes}
-\end{figure}
+For \(S\) positions in this single-head notation, \(Q,K,V\) each have
+\(S\) rows and \(d_h\) columns; \(QK^{\mathsf T}\) has shape \(S\times S\).
+Multiple heads perform related computations and their outputs are
+combined by a learned projection.  Feed-forward sublayers use further
+learned matrices and nonlinear functions.  The \(W\) matrices are
+\textbf{persistent parameters}; \(X,Q,K,V,A\) are \textbf{input-dependent
+values}.  Some of these values are temporary, while keys and values
+may be retained to reuse the history in later evaluations.  These
+storage roles, rather than the details of training or sampling, are the
+basis of the following sections.
 \FloatBarrier
-
-Three latency and throughput concepts follow directly.  \emph{Time to first
-token} (TTFT) covers the request boundary through the first generated token and
-is therefore driven largely, but not exclusively, by prefill.  \emph{Inter-token
-latency} (ITL) measures the gaps between successive output tokens;
-\emph{time per output token} (TPOT) summarises their average within a
-request.  Throughput in tokens per second depends on whether tokens are counted
-for one sequence or across a batch.  These metrics answer different questions
-and must be reported with prompt length, generated length and concurrency.
-\secref{sec:metrics} defines them more precisely.

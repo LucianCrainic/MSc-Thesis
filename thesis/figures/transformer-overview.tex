@@ -1,0 +1,93 @@
+% Original schematic: a vertical model path and a pre-normalized layer.
+% Expansion is shown by one horizontal annotation, not diagonal guides.
+\begingroup
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+ font=\small\sffamily, text=black!80,
+ box/.style={draw=tabline,fill=neutralcol,rounded corners=3pt,
+   text width=2.5cm,minimum height=0.7cm,align=center,inner sep=5pt},
+ operation/.style={box,draw=figcol,fill=figcol!7},
+ layerop/.style={operation,text width=3.3cm},
+ state/.style={box,draw=ddrcol,fill=ddrcol!8,text width=2.5cm},
+ add/.style={circle,draw=black!65,fill=white,minimum size=0.43cm,
+   inner sep=0pt,font=\normalsize\sffamily},
+ arrow/.style={-{Stealth[length=4pt]},draw=black!65,line width=0.8pt},
+ flow/.style={draw=black!65,line width=0.8pt},
+ kvflow/.style={draw=ddrcol,line width=0.8pt},
+ note/.style={font=\footnotesize\sffamily,align=center},
+ heading/.style={font=\small\sffamily\bfseries,align=center}
+]
+% Panel A: follow the model from bottom to top.
+\node[heading] at (0,8.5) {(a) Complete model};
+\node[box] (tokens) at (0,-0.45) {Token IDs};
+\node[operation] (embedding) at (0,1.05) {Embedding\\lookup};
+\node[operation,minimum height=2.0cm] (layers) at (0,3.05)
+ {Decoder layer 1\\$\vdots$\\Decoder layer $L$};
+\node[operation] (finalnorm) at (0,4.85) {Final norm};
+\node[operation] (projection) at (0,6.05) {Vocabulary\\projection};
+\node[box] (logits) at (0,7.6) {Logits};
+\draw[arrow] (tokens)--(embedding);
+\draw[arrow] (embedding)--(layers);
+\draw[arrow] (layers)--(finalnorm);
+\draw[arrow] (finalnorm)--(projection);
+\draw[arrow] (projection)--(logits);
+
+% Panel B: two sublayers with distinct additions and residual bypasses.
+% The frame stays outside every operation and residual path.
+\node[heading] at (6.6,8.5) {(b) One decoder layer (pre-norm)};
+\draw[draw=tabline,fill=none,rounded corners=5pt,line width=0.7pt]
+ (4.05,0.35) rectangle (8.65,6.65);
+\node[box,text width=3.3cm] (input) at (6.6,-0.45) {Layer input activations};
+\node[layerop] (norm1) at (6.6,1.05) {Normalization};
+\node[layerop,minimum height=1.1cm] (attention) at (6.6,2.2)
+ {Causal self-attention\\$W_Q,W_K,W_V,W_O$};
+\node[add] (add1) at (6.6,3.2) {$+$};
+\node[layerop] (norm2) at (6.6,4.05) {Normalization};
+\node[layerop,minimum height=1.05cm] (ffn) at (6.6,5.2)
+ {Feed-forward network\\learned weights};
+\node[add] (add2) at (6.6,6.2) {$+$};
+\node[box,text width=3.3cm] (output) at (6.6,7.6) {Layer output activations};
+\draw[arrow] (input)--(norm1);
+\draw[arrow] (norm1)--(attention);
+\draw[arrow] (attention)--(add1);
+\draw[arrow] (add1)--(norm2);
+\draw[arrow] (norm2)--(ffn);
+\draw[arrow] (ffn)--(add2);
+\draw[arrow] (add2)--(output);
+
+% Branch before normalization, rejoin only at the corresponding addition.
+\coordinate (branch1) at (6.6,0.58);
+\coordinate (branch2) at (6.6,3.6);
+\fill[black!65] (branch1) circle (1.3pt);
+\fill[black!65] (branch2) circle (1.3pt);
+\draw[arrow] (branch1)--(4.4,0.58)--(4.4,3.2)--(add1.west);
+\draw[arrow] (branch2)--(4.4,3.6)--(4.4,6.2)--(add2.west);
+\node[note,rotate=90,fill=white,inner sep=2pt] at (4.4,1.8) {Residual};
+\node[note,rotate=90,fill=white,inner sep=2pt] at (4.4,4.9) {Residual};
+
+% The only panel connector explains expansion; it carries no activations.
+\draw[-{Stealth[length=4pt]},draw=black!40,line width=0.7pt]
+ (layers.east)--(4.05,3.05);
+\node[note,text=black!60] at (2.85,3.6) {Expand\\one layer};
+
+% KV is stored state, outside the activation pipeline.
+\node[state,minimum height=1.35cm] (cache) at (11.2,2.2)
+ {KV cache\\computed $K,V$\\one per layer};
+\draw[kvflow,{Stealth[length=4pt]}-{Stealth[length=4pt]}]
+ (attention.east)--(cache.west);
+\node[note,text=ddrcol,text width=2.7cm] at (11.2,0.75)
+ {Retain keys and values\\for later evaluations};
+
+% Match each swatch to the cards; describe the meaning without naming a colour.
+\node[draw=figcol,fill=figcol!7,rounded corners=1pt,
+ minimum width=0.3cm,minimum height=0.22cm,inner sep=0pt] at (-1.25,-1.5) {};
+\node[note,anchor=west] at (-0.95,-1.5) {Operations using weights};
+\node[draw=tabline,fill=neutralcol,rounded corners=1pt,
+ minimum width=0.3cm,minimum height=0.22cm,inner sep=0pt] at (3.9,-1.5) {};
+\node[note,anchor=west] at (4.2,-1.5) {Input/output activations};
+\node[draw=ddrcol,fill=ddrcol!8,rounded corners=1pt,
+ minimum width=0.3cm,minimum height=0.22cm,inner sep=0pt] at (9.1,-1.5) {};
+\node[note,anchor=west] at (9.4,-1.5) {Retained request state};
+\end{tikzpicture}%
+}
+\endgroup
